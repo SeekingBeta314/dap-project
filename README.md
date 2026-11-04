@@ -36,30 +36,32 @@ partner), `+x` points to the finger hinge.
 
 ## Setup
 
-Needs Python 3.12 or 3.13 and Drake 1.57+ (tested on 1.57 and 1.58). On macOS
-the command is `python3`, not `python`:
+Needs Python 3.12 or 3.13 (`python3`) and Drake 1.57+ (tested on 1.57 and 1.58).
+From the repo root:
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+make setup     # creates .venv and installs requirements.txt (once)
 ```
-
-Or with uv (what the course venv uses): `uv venv && uv pip install -r requirements.txt`.
-
-If you already have the course venv, you can use it directly
-(`source ../.venv/bin/activate` from a checkout inside the course repo). It
-doesn't include pytest; add it with `uv pip install pytest`.
-
-> Drake downloads its robot models on first use and that download breaks if the
-> venv path contains a space (e.g. `MIT Stuff/`). Keep the venv in a path
-> without spaces if you hit `returncode == 512`.
 
 ## Run
 
+The `make` targets use `.venv/bin/python` directly, so there's no need to
+activate anything:
+
 ```bash
-python scripts/show_scene.py --seed 0
-python -m pytest -q
+make test                          # pytest
+make scene SEED=0                  # Meshcat view of the scene + a partner path
+make dry-run CONFIG=replan_vs_once # list an experiment's conditions
+make experiment CONFIG=smoke       # run a sweep
 ```
+
+To run scripts by hand, activate the venv first (`source .venv/bin/activate`,
+once per terminal); then `python` means the venv's Python. Without it, macOS
+only has `python3`, which is your system Python and not the project's.
+
+> Drake downloads its robot models on first use and that download breaks if the
+> venv path contains a space (e.g. `MIT Stuff/`). If you hit `returncode == 512`,
+> clone the repo somewhere without spaces and `make setup` there.
 
 ## Experiments
 
