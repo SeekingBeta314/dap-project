@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>dap</name>
+  <version>0.0.1</version>
+  <description>Models for the 6.4210 dap project.</description>
+  <maintainer email="jnix@mit.edu">Josh Nix</maintainer>
+  <license>MIT</license>
+</package>

@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<!--
+  Dap hand: a flat palm plus one hinged finger plate.
+
+  Frame convention (the "hand" frame = the palm link frame, welded to
+  iiwa_link_7 by scene.py):
+    +z  palm normal, pointing away from the arm (the face that meets the partner)
+    +x  toward the hinge edge
+    +y  across the palm
+
+  The finger plate starts open, lying along +x past the hinge edge, and closes
+  by rotating about the hinge's y axis (negative angle) so it wraps forward
+  over the partner's hand.
+-->
+<sdf version="1.9">
+  <model name="dap_hand">
+    <link name="palm">
+      <inertial>
+        <pose>0 0 0.01 0 0 0</pose>
+        <mass>0.3</mass>
+        <inertia>
+          <ixx>3.7e-4</ixx><iyy>2.6e-4</iyy><izz>6.1e-4</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="palm_visual">
+        <pose>0 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.10 0.12 0.02</size></box></geometry>
+        <material><diffuse>0.85 0.7 0.55 1</diffuse></material>
+      </visual>
+      <collision name="palm_collision">
+        <pose>0 0 0.01 0 0 0</pose>
+        <geometry><box><size>0.10 0.12 0.02</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name="finger_plate">
+      <pose relative_to="finger_hinge">0 0 0 0 0 0</pose>
+      <inertial>
+        <pose>0.04 0 0 0 0 0</pose>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>1.2e-4</ixx><iyy>5.4e-5</iyy><izz>1.7e-4</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="plate_visual">
+        <pose>0.04 0 0 0 0 0</pose>
+        <geometry><box><size>0.08 0.12 0.01</size></box></geometry>
+        <material><diffuse>0.6 0.45 0.35 1</diffuse></material>
+      </visual>
+      <collision name="plate_collision">
+        <pose>0.04 0 0 0 0 0</pose>
+        <geometry><box><size>0.08 0.12 0.01</size></box></geometry>
+      </collision>
+    </link>
+
+    <joint name="finger_hinge" type="revolute">
+      <pose relative_to="palm">0.05 0 0.02 0 0 0</pose>
+      <parent>palm</parent>
+      <child>finger_plate</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1.8</lower>
+          <upper>0</upper>
+          <effort>5</effort>
+          <velocity>4</velocity>
+        </limit>
+      </axis>
+    </joint>
+  </model>
+</sdf>
