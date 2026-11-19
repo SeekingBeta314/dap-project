@@ -4,16 +4,17 @@ Drake renders perfect depth. `DepthNoiseModel` corrupts it with the noise
 sources a real RealSense D435 shows at 0.2-3 m. Each step and its parameter
 values are cited in docs/setup.md (section "Depth noise"); in short:
 
-  1. Range gate        z < Min-Z or z > max range -> invalid (0)    D400 datasheet
-  2. Lateral jitter    N(0, sigma_s^2) px shift + bilinear resample  Handa et al. 2014
+  1. Range gate        z < Min-Z or z > max range -> invalid (0)    D400 datasheet Table 4-12
+  2. Lateral jitter    N(0, sigma_s^2) px shift + bilinear resample  Handa et al. 2014 (Kinect v1)
   3. Axial noise       Gaussian noise in disparity d = f*B/z          Intel tuning whitepaper
                        (gives RMS_z = z^2 * sigma_sp / (f*B))
-  4. Fixed pattern     coarse disparity field, held for the episode   Mahler et al. 2017 (Dex-Net 2.0)
+  4. Fixed pattern     coarse disparity field, held for the episode   ours, after Dex-Net 2.0's GP noise
   5. Scale bias        depth *= alpha, alpha ~ N(1, sigma_a^2)/episode D400 datasheet (+-2% Z-accuracy)
-  6. Grazing dropout   invalid where surface angle > theta_max       Nguyen et al. 2012
-  7. Stereo shadow     invalid band beside foreground edges           D400 datasheet sec. 4.5
-  8. Holes             Bernoulli pixels + rectangular blobs           D400 fill rate; Zhuang et al. 2023
-  9. Quantize          1 mm depth units                               D400 datasheet
+  6. Grazing dropout   invalid where surface angle > theta_max       Nguyen et al. 2012 (Kinect v1)
+  7. Stereo shadow     invalid band beside foreground edges           ours, from the stereo geometry
+                                                                      (left imager = reference, sec. 4.5)
+  8. Holes             Bernoulli pixels + rectangular blobs           D400 fill rate; Robot Parkour code
+  9. Quantize          1 mm depth units                               Intel tuning whitepaper
 
 Latency is not handled here (see `dap.camera.FrameBuffer`).
 
@@ -30,7 +31,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-# D435 stereo baseline (m). D400 datasheet, Table 4-1.
+# D435 stereo baseline (m). D400 datasheet, Table 3-49.
 D435_BASELINE = 0.050
 # Minimum depth at 848x480 (m). D400 datasheet, Table 4-12.
 D435_MIN_Z_848 = 0.195
@@ -43,7 +44,7 @@ class DepthNoiseParams:
     min_z: float = D435_MIN_Z_848  # m
     max_z: float = 3.0  # m
     baseline: float = D435_BASELINE  # m
-    sigma_subpixel: float = 0.08  # px, disparity noise std (Intel: typical 0.08)
+    sigma_subpixel: float = 0.08  # px, disparity noise std (value in Intel's D435 RMS curves)
     sigma_shift: float = 0.5  # px, lateral jitter std (Handa et al. 2014)
     sigma_pattern: float = 0.04  # px, fixed-pattern disparity std (0.5 * sigma_subpixel)
     pattern_downsample: int = 8  # coarse grid factor for the fixed pattern
@@ -158,8 +159,9 @@ def surface_angle(z, fx, fy, cx, cy):
 def stereo_shadow_mask(z, fx, baseline, min_jump):
     """Pixels the second (right) imager cannot see. The left imager is the
     D400 depth reference, so the occluded band lies to the LEFT of each
-    foreground edge, with width f*B*(1/z_near - 1/z_far) px (D400 datasheet
-    sec. 4.5 gives the same f*B/z geometry for the left-edge invalid band)."""
+    foreground edge, with width f*B*(1/z_near - 1/z_far) px. The per-edge
+    formula is our derivation; D400 datasheet sec. 4.5 gives the same f*B/z
+    geometry only for the invalid band at the frame's left edge."""
     h, w = z.shape
     mask = np.zeros_like(z, dtype=bool)
     # Edge where depth drops (background on the left, foreground on the right).

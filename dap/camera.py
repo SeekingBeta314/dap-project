@@ -2,12 +2,14 @@
 
 Parameter sources (full table in docs/setup.md, "Head camera"):
   - 848x480 depth, vertical FOV 58 deg (-> ~89 deg horizontal): D435 depth
-    FOV 87x58 deg and native 848x480 mode (D400 datasheet, Mar 2026).
+    FOV 87x58 deg (D400 datasheet Table 3-49) and Intel's recommended
+    848x480 depth mode (Intel tuning whitepaper).
   - 30 fps: D435 / Azure Kinect / DexYCB rate.
   - depth range 0.195-3.0 m: D435 Min-Z at 848x480; ideal range 0.3-3 m.
   - mount ~0.4 m behind and ~1.45 m above our base, pitched ~38 deg down:
     RoboCasa puts its cameras 0.5-0.6 m behind the base, 0.95-1.15 m up,
-    pitched 26-35 deg down; Fetch/TIAGo/HSR heads sit 1.0-1.45 m up.
+    pitched 26-35 deg down; Fetch's head camera is 1.06-1.45 m above its
+    base link (torso down/up).
   - latency: one frame (33 ms) by default, modelled by `FrameBuffer`.
 
 The camera is welded to the world, i.e. fixed relative to our base (our base

@@ -1,38 +1,48 @@
-"""One trial: sample a scenario, run our controller, score the dap.
+"""One trial: sample a scenario, run a controller, score the dap.
 
-The loop is kinematic: our arm is wherever the controller commands, and the
-partner arm follows its sampled joint trajectory. Swapping in a full Drake
-simulation later only changes `run_trial`; `score` works off the log.
+The loop is kinematic and causal. At each step k (time t = k dt):
+  1. the controller sees our measured joint positions q(t) and the partner
+     estimate (stand-in sensor at time t) and returns a command for t + dt;
+  2. the harness moves our arm toward it, at most v_max * dt per joint and
+     within the joint position limits (so the arm cannot teleport), and
+     moves the partner arm along its sampled joint trajectory to t + dt;
+  3. the ground truth at t + dt is logged and checked by the same event rule
+     the scorer uses (dap.scoring.EventMonitor).
+The trial ends at the first contact or collision, or `t_extra` s after the
+partner's motion ends. It is scored afterwards from the log alone
+(dap.scoring.evaluate); the controller's own claims play no part.
 """
 
 import time
+import traceback
 from dataclasses import dataclass, field
 
 import numpy as np
 
-from dap.checkpoints import sample_checkpoints
 from dap.estimator import PalmEstimator
 from dap.experiment import Condition, ExperimentConfig, trial_rngs
-from dap.metrics import TrialResult, palm_angle_error_deg, palm_contact
+from dap.metrics import TrialResult
 from dap.partner import NOISE_ANG, NOISE_POS, NoisyPoseSensor
-from dap.planner import ReplanningController
+from dap.planner import ReplanningController, controller_model
 from dap.scenario import SCENARIO_PRESETS, sample_scenario
+from dap.scene import OURS
+from dap.scoring import EventMonitor, evaluate
 
 
 @dataclass
 class TrialLog:
-    """Ground-truth history, one row per control step."""
+    """Ground-truth history, one row per step (including t = 0)."""
 
     t: list = field(default_factory=list)
     q: list = field(default_factory=list)
     palm_p: list = field(default_factory=list)  # our palm face center
-    palm_n: list = field(default_factory=list)  # our palm normal
+    palm_R: list = field(default_factory=list)  # our palm frame (x fingers, z normal)
     partner_p: list = field(default_factory=list)
-    partner_n: list = field(default_factory=list)
-    partner_v: list = field(default_factory=list)
-    arm_dist: list = field(default_factory=list)  # our arm/hand vs. partner arm/hand
-    clearance: list = field(default_factory=list)  # min over all unfiltered pairs
-    phase: list = field(default_factory=list)
+    partner_R: list = field(default_factory=list)
+    partner_v: list = field(default_factory=list)  # partner palm face velocity
+    clearance: list = field(default_factory=list)  # every pair but palm-palm
+    palm_palm: list = field(default_factory=list)  # palm box vs. palm box
+    arm_dist: list = field(default_factory=list)  # ours vs. partner, palm pair excluded
 
     def append(self, **row):
         for k, v in row.items():
@@ -42,121 +52,107 @@ class TrialLog:
         return {k: np.asarray(v) for k, v in self.__dict__.items()}
 
 
-def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None):
+def default_controller(cfg: ExperimentConfig, cond: Condition, scenario):
+    return ReplanningController(replan_hz=cfg.replan_hz, replan=(cond.planner == "replan"))
+
+
+def horizon_steps(t_end, t_extra, dt):
+    """Number of control steps in a trial (and an RL episode): the last
+    sample is at horizon_steps * dt >= t_end + t_extra."""
+    return int(np.ceil((t_end + t_extra) / dt - 1e-9))
+
+
+def limit_command(q_cmd, q, v_max, dt, q_lo, q_hi):
+    """Where the arm actually goes: at most v_max * dt per joint toward the
+    command, within the position limits. Returns (q_next, ok); a
+    non-finite or wrongly shaped command holds the arm (ok = False)."""
+    q_cmd = np.asarray(q_cmd, dtype=float) if q_cmd is not None else None
+    if q_cmd is None or q_cmd.shape != q.shape or not np.all(np.isfinite(q_cmd)):
+        return q.copy(), False
+    step = v_max * dt
+    return np.clip(np.clip(q_cmd, q - step, q + step), q_lo, q_hi), True
+
+
+def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
+              controller_factory=default_controller, return_log=False):
+    """`controller_factory(cfg, cond, scenario)` builds the controller; it
+    gets the scenario so reference baselines (e.g. the oracle) can use
+    ground truth. A real controller must not."""
     rngs = trial_rngs(seed)
-    result = TrialResult(
-        seed=seed,
-        planner=cond.planner,
-        speed_scale=cond.speed_scale,
-        noise_scale=cond.noise_scale,
-        n_checkpoints=cond.n_checkpoints,
-        velocity_match=cond.velocity_match,
-    )
+    result = TrialResult(seed=seed, planner=cond.planner, noise_scale=cond.noise_scale)
     wall0 = time.perf_counter()
 
-    sc = sample_scenario(rngs["scenario"], SCENARIO_PRESETS[cfg.scenario], cond.speed_scale,
-                         camera=camera)
+    sc = sample_scenario(rngs["scenario"], SCENARIO_PRESETS[cfg.scenario], camera=camera)
     scene, motion = sc.scene, sc.partner
     result.scenario_attempts = sc.attempts
+    result.target_peak_speed = sc.target_peak_speed
+    result.partner_peak_speed = motion.peak_speed
+    result.partner_speed_at_meet = motion.speed_at_meet
     result.t_meet_true = motion.t_meet
+    result.reachable_in_time = bool(sc.reachable_in_time)
+    result.partner_joint_speed_ratio = sc.partner_joint_speed_ratio
+    for k in ("distance", "lateral", "yaw_deg", "height"):
+        setattr(result, f"layout_{k}", getattr(sc.layout, k))
 
     # Stand-in for the camera pipeline (docs/perception_pipeline.md).
     sensor = NoisyPoseSensor(motion, rngs["sensor"], NOISE_POS * cond.noise_scale,
                              NOISE_ANG * cond.noise_scale)
     estimator = PalmEstimator(pos_noise=sensor.noise_pos)
 
-    scene.set_ours(sc.q_ours0)
-    scene.set_partner(motion.q(0.0))
-    p0, _ = scene.palm()
-    # Checkpoints run toward the nominal meeting point (known from the
-    # layout), not the true one, so they leak nothing about the partner path.
-    checkpoints = sample_checkpoints(rngs["checkpoints"], cond.n_checkpoints, p0, sc.meet_prior)
-
-    controller = ReplanningController(
-        replan_hz=cfg.replan_hz,
-        handoff_dist=cfg.handoff_dist,
-        replan=(cond.planner == "replan"),
-        velocity_match=cond.velocity_match,
-    )
-    controller.reset(scene.plant, scene.plant_context, sc.q_ours0.copy(), checkpoints)
+    idx = scene.idx[OURS]
+    v_max, q_lo, q_hi = scene.v_max[idx], scene.q_lower[idx], scene.q_upper[idx]
+    def controller_crashed(what):
+        # A crash inside the controller is a failure of the method, recorded
+        # as a trial outcome with every scenario covariate kept.
+        result.outcome, result.error_kind = "error", "controller"
+        result.error = f"{what}:\n{traceback.format_exc(limit=5)}"
+        result.wall_time_s = time.perf_counter() - wall0
+        return (result, log) if return_log else result
 
     log = TrialLog()
-    t_end = motion.t_end + cfg.t_extra
-    for t in np.arange(0.0, t_end, cfg.dt):
+    try:
+        controller = controller_factory(cfg, cond, sc)
+        controller.reset(controller_model(scene, cfg.dt), sc.q_ours0.copy())
+    except Exception:
+        return controller_crashed("controller setup failed")
+
+    monitor = EventMonitor(cfg.tolerances.touch_dist)
+    q = sc.q_ours0.copy()
+
+    def record(t):
+        scene.set_ours(q)
         scene.set_partner(motion.q(t))
+        m = scene.measure()
+        log.append(t=t, q=q.copy(), partner_v=motion.v(t), **m)
+        return monitor.step(m["palm_p"], m["palm_R"], m["partner_p"], m["partner_R"],
+                            m["clearance"], m["palm_palm"])
+
+    step_ms = []
+    n_steps = horizon_steps(motion.t_end, cfg.t_extra, cfg.dt)
+    event = record(0.0)
+    for k in range(n_steps):
+        if event is not None:
+            break
+        t = k * cfg.dt
         estimator.update(t, *sensor.measure(t))
-        q, _ = controller.step(t, estimator)
-        scene.set_ours(q, controller.hinge)
-        palm_p, palm_n = scene.palm()
-        log.append(
-            t=t, q=q, palm_p=palm_p, palm_n=palm_n,
-            partner_p=motion.p(t), partner_n=motion.normal(t), partner_v=motion.v(t),
-            arm_dist=scene.min_arm_distance(), clearance=scene.clearance(),
-            phase=controller.phase,
-        )
-        if controller.phase == "done":
-            break
+        c0 = time.perf_counter()
+        try:
+            q_cmd = controller.step(t, q.copy(), estimator)
+        except Exception:
+            return controller_crashed(f"controller.step failed at t={t:.2f}")
+        step_ms.append(1e3 * (time.perf_counter() - c0))
+        q, ok = limit_command(q_cmd, q, v_max, cfg.dt, q_lo, q_hi)
+        result.n_bad_commands += int(not ok)
+        event = record((k + 1) * cfg.dt)
 
-    score(cfg, log, checkpoints, controller, result)
+    for key, val in evaluate(log.arrays(), motion.t_meet, cfg.tolerances, v_max).items():
+        setattr(result, key, val)
+    if result.outcome != (event or "timeout"):  # the live and offline rules must agree
+        raise RuntimeError(f"live event {event!r} != scored outcome {result.outcome!r}")
+    result.n_steps = len(step_ms)
+    if step_ms:
+        result.step_ms_mean = float(np.mean(step_ms))
+        result.step_ms_p95 = float(np.percentile(step_ms, 95))
+        result.step_ms_max = float(np.max(step_ms))
     result.wall_time_s = time.perf_counter() - wall0
-    return result
-
-
-def score(cfg, log: TrialLog, checkpoints, controller, result: TrialResult):
-    """Fill `result` from the ground-truth log. Pure function of its inputs."""
-    a = log.arrays()
-    t = a["t"]
-
-    result.plan_times_ms = list(controller.plan_times_ms)
-    result.n_replans = controller.n_replans
-    result.n_infeasible = controller.n_infeasible
-    result.t_meet_pred = controller.t_meet_pred
-    result.clasp_held = bool(controller.clasp_held)
-
-    if a["arm_dist"].size:
-        result.min_arm_dist = float(np.min(a["arm_dist"]))
-    if a["clearance"].size:
-        result.collision = bool(np.min(a["clearance"]) < 0.0)
-
-    # Checkpoints, in order: closest approach after the previous one was hit.
-    start = 0
-    for c in checkpoints:
-        d = np.linalg.norm(a["palm_p"][start:] - c, axis=1)
-        i = int(np.argmin(d))
-        result.checkpoint_errs.append(float(d[i]))
-        start += i
-
-    # Contact = first sample where the palm faces close along the partner's
-    # palm normal while overlapping in the palm plane (metrics.palm_contact).
-    k = None
-    for i in range(len(t)):
-        hit, _, in_plane = palm_contact(a["palm_p"][i], a["partner_p"][i], a["partner_n"][i],
-                                        cfg.contact_dist)
-        if hit:
-            k = i
-            break
-    if k is None:
-        return result
-    result.contact = True
-    result.t_contact = float(t[k])
-    result.time_err = result.t_contact - result.t_meet_pred
-
-    # Position error in the partner's palm plane; angle between the normals.
-    n_partner = a["partner_n"][k]
-    result.pos_err = in_plane
-    result.angle_err = palm_angle_error_deg(a["palm_n"][k], n_partner)
-
-    # Velocity mismatch over the window before contact (finite-difference ours).
-    v_ours = np.gradient(a["palm_p"], t, axis=0)
-    w = (t >= t[k] - cfg.vel_window) & (t <= t[k])
-    result.vel_mismatch = float(
-        np.mean(np.linalg.norm(v_ours[w] - a["partner_v"][w], axis=1))
-    )
-
-    result.success = (
-        result.pos_err <= cfg.success_pos_tol
-        and result.angle_err <= cfg.success_angle_tol
-        and result.clasp_held
-        and not result.collision
-    )
-    return result
+    return (result, log) if return_log else result

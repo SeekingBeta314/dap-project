@@ -6,7 +6,7 @@ from dap.scene import OURS, PARTNER, Q_READY, Scene, SceneLayout, build_scene
 def test_palms_face_each_other():
     diagram, plant, _ = build_scene()
     pc = plant.GetMyContextFromRoot(diagram.CreateDefaultContext())
-    assert plant.num_positions() == 16  # 7 + 7 arm joints, 2 finger hinges
+    assert plant.num_positions() == 14  # 7 + 7 arm joints; the hands are rigid
 
     def palm(name):
         frame = plant.GetFrameByName("palm", plant.GetModelInstanceByName(name))
@@ -39,24 +39,51 @@ def test_ready_pose_is_collision_free():
     assert scene.min_arm_distance() > 0.1
 
 
-def test_hand_hand_contact_is_filtered():
+def test_only_the_palm_pair_is_excluded():
+    """At a palm-to-palm dap the two palm boxes touch; that pair is left to
+    the scorer. Every other pair, hand-hand included, still counts as a
+    collision."""
     from dap.feasibility import check_feasible
 
     scene = Scene()
     w = check_feasible(scene, np.random.default_rng(0), target=[0.7, 0.0, 0.6])
     scene.set_q(w.q)
-    p_ours, _ = scene.palm(OURS)
-    p_partner, _ = scene.palm(PARTNER)
-    assert np.linalg.norm(p_ours - p_partner) < 0.01  # the palms are touching
+    assert abs(scene.palm_palm_distance()) < 0.005  # the palms are touching
     hands = {scene.hands[OURS], scene.hands[PARTNER]}
     inspector = scene.scene_graph.model_inspector()
-    plant = scene.plant
 
     def model(gid):
-        return plant.GetBodyFromFrameId(inspector.GetFrameId(gid)).model_instance()
+        return scene.plant.GetBodyFromFrameId(inspector.GetFrameId(gid)).model_instance()
 
     pairs = scene._query().ComputeSignedDistancePairwiseClosestPoints(0.05)
-    for p in pairs:
-        a, b = model(p.id_A), model(p.id_B)
-        assert not (a in hands and b in hands and a != b), "hand-hand pair not filtered"
+    hand_hand = [p for p in pairs if model(p.id_A) in hands and model(p.id_B) in hands
+                 and model(p.id_A) != model(p.id_B)]
+    assert any(scene._is_palm_pair(p) for p in hand_hand)
+    assert any(not scene._is_palm_pair(p) for p in hand_hand)  # fingers etc. are checked
     assert scene.clearance() > 0.0
+
+    # Push our arm 3 cm further into the partner: the finger plates now hit
+    # the partner palm, which clearance must report.
+    q = w.q.copy()
+    scene.set_q(q)
+    n = scene.palm(OURS)[1]
+    X = scene.palm_pose(OURS)
+    from dap.ik import arm_ik
+    from pydrake.all import RigidTransform
+    q_in = arm_ik(scene, OURS, RigidTransform(X.rotation(), X.translation() + 0.03 * n),
+                  w.q_ours, w.q_ours, 0.001, 1.0)
+    assert q_in is not None
+    scene.set_ours(q_in)
+    assert scene.clearance() < 0.0
+
+
+def test_planning_context_can_filter_hands_without_touching_the_scene():
+    scene = Scene()
+    ctx, pc = scene.new_context(filter_hands=True)
+    assert pc is not scene.plant_context
+    sg = scene.scene_graph.GetMyContextFromRoot(ctx)
+    q_obj = scene.scene_graph.get_query_output_port().Eval(sg)
+    a, b = scene.palm_geoms[OURS], scene.palm_geoms[PARTNER]
+    inspector = q_obj.inspector()
+    assert inspector.CollisionFiltered(a, b)
+    assert not scene.scene_graph.model_inspector().CollisionFiltered(a, b)

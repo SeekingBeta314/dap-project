@@ -1,70 +1,93 @@
-"""Kinematic trajectory optimization + replanning loop (proposal section 4.3)."""
+"""Our controller: kinematic trajectory optimization + replanning (proposal
+section 4.3), and the contract `dap.trial.run_trial` drives.
+
+Contract (also implemented by the scripted references in dap/baselines.py):
+
+    controller.reset(model: ControllerModel, q0)
+    q_cmd = controller.step(t, q, estimator)    # every dt
+
+`step` sees the measured joint positions `q` of our arm at time t and the
+partner estimate, and returns the joint positions it wants at t + dt. The
+harness enforces the arm's limits: each joint moves at most v_max * dt per
+step and stays within its position limits, so a command that asks for more
+is clipped (no teleporting). A non-finite or wrongly shaped command holds the
+arm still and is counted. The harness ends the trial at the first contact or
+collision, or at the time limit, and scores it from ground truth; nothing the
+controller reports is scored. Its compute time is measured by the harness.
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
 
 
-def plan_to_meeting(plant, plant_context, q_now, qdot_now, meeting, checkpoints,
-                    t_now, checkpoint_tol=0.02):
-    """Return a joint-space trajectory that passes `checkpoints` in order and
-    arrives at `meeting.X_WPalm` at `meeting.t_meet` with palm velocity
-    matching `meeting.v_partner`.
+@dataclass
+class ControllerModel:
+    """What the controller may use: the robot model, its OWN diagram context
+    (separate from the one the harness measures with, so planning can pose
+    the arms freely), and our arm's limits. The partner in this context sits
+    at its default configuration; where the partner is must come from the
+    estimator."""
+
+    diagram: object
+    plant: object
+    scene_graph: object
+    context: object  # root diagram context, for scene_graph queries
+    plant_context: object
+    ours: object  # our arm's ModelInstanceIndex
+    idx: np.ndarray  # our joints' indices in the plant's position vector
+    q_lower: np.ndarray
+    q_upper: np.ndarray
+    v_max: np.ndarray
+    dt: float
+
+
+def controller_model(scene, dt):
+    from dap.scene import OURS
+
+    ctx, pc = scene.new_context()
+    idx = scene.idx[OURS]
+    return ControllerModel(
+        diagram=scene.diagram, plant=scene.plant, scene_graph=scene.scene_graph,
+        context=ctx, plant_context=pc, ours=scene.models[OURS], idx=idx,
+        q_lower=scene.q_lower[idx].copy(), q_upper=scene.q_upper[idx].copy(),
+        v_max=scene.v_max[idx].copy(), dt=dt,
+    )
+
+
+def plan_to_meeting(model: ControllerModel, q_now, qdot_now, meeting, t_now):
+    """Return a joint-space trajectory that arrives at `meeting.X_WPalm` at
+    `meeting.t_meet`. The arrival velocity is a planner design choice (e.g.
+    at rest, or moving with the predicted partner velocity); success does
+    not score it, the loss may (dap.scoring.LossWeights.w_speed).
 
     Constraints (KinematicTrajectoryOptimization):
-      - PositionConstraint per checkpoint at a free normalized time, ordered
       - MinimumDistanceLowerBoundConstraint vs. the predicted partner arm
       - joint position / velocity limits
-      - start at (q_now, qdot_now); end at meeting.q_meet with matched velocity
-    On failure: loosen checkpoint_tol, then let the caller try another meeting point.
+      - start at (q_now, qdot_now); end at meeting.q_meet
+    On failure: let the caller try another meeting point.
     """
     # TODO
     raise NotImplementedError
 
 
 class ReplanningController:
-    """Runs estimate -> meeting point -> plan at a fixed rate; hands off to
-    the clasp controller once the palms are within `handoff_dist`.
+    """Runs estimate -> meeting point -> plan at a fixed rate."""
 
-    This is the contract `dap.trial.run_trial` drives. The trial loop is
-    kinematic for now: whatever (q, qdot) `step` returns is where our arm is.
-
-    `reset` receives the trial's shared plant context, which also poses the
-    partner arm for rendering and collision checks. Use it read-only. For
-    IK or trajectory optimization, create a fresh context
-    (`diagram.CreateDefaultContext()`), as dap/ik.py and dap/feasibility.py do.
-
-    Attributes the trial loop reads:
-      phase          "approach" | "clasp" | "done"; "done" ends the trial
-      hinge          commanded finger-hinge angle (rad), 0 = open
-      clasp_held     set by the clasp phase once the plate has closed on the partner hand
-      t_meet_pred    latest predicted meeting time (s)
-      plan_times_ms  wall time of each plan_to_meeting call
-      n_replans, n_infeasible
-    """
-
-    def __init__(self, replan_hz=10.0, handoff_dist=0.04, replan=True,
-                 velocity_match=True):
+    def __init__(self, replan_hz=10.0, replan=True):
         self.replan_hz = replan_hz
-        self.handoff_dist = handoff_dist
         self.replan = replan  # False = plan-once baseline
-        self.velocity_match = velocity_match  # False = arrive with zero velocity
 
-        self.phase = "approach"
-        self.hinge = 0.0
-        self.clasp_held = False
-        self.t_meet_pred = float("nan")
-        self.plan_times_ms = []
-        self.n_replans = 0
-        self.n_infeasible = 0
-
-    def reset(self, plant, plant_context, q0, checkpoints, t0=0.0):
-        """Start of trial. `checkpoints` is (n, 3), to be hit in order."""
+    def reset(self, model: ControllerModel, q0):
+        """Start of a trial."""
         # TODO
         raise NotImplementedError
 
-    def step(self, t, estimator):
-        """Advance to time t; return our arm's commanded (q, qdot), each (7,).
+    def step(self, t, q, estimator):
+        """Return the commanded joint positions (7,) for t + dt.
 
         Replans when `replan` is set and 1/replan_hz has passed since the last
-        plan (plan once otherwise), switches to the clasp controller when the
-        estimated palm gap drops below handoff_dist.
+        plan (plans once otherwise).
         """
         # TODO
         raise NotImplementedError

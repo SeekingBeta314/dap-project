@@ -18,8 +18,10 @@ def arm_ik(scene: Scene, name, X_target, q_nominal, q_seed, pos_tol, angle_tol_d
     pairs. Returns the arm's (7,) configuration or None.
     """
     plant = scene.plant
-    ctx = scene.diagram.CreateDefaultContext()
-    pc = plant.GetMyMutableContextFromRoot(ctx)
+    # With a minimum-distance constraint, hand-hand pairs are excluded: this
+    # IK is used to put a palm at a palm-to-palm meeting pose, where the
+    # hands are adjacent by design.
+    _, pc = scene.new_context(filter_hands=min_distance is not None)
     ik = InverseKinematics(plant, pc)
     q = ik.q()
     prog = ik.get_mutable_prog()

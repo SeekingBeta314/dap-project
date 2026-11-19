@@ -3,11 +3,13 @@
     python scripts/run_experiment.py smoke --dry-run
     python scripts/run_experiment.py replan_vs_once --workers 4
     python scripts/run_experiment.py speed_limits --seeds 5      # quick look
+    python scripts/run_experiment.py smoke --controller oracle  # scripted reference
 
 Writes results/<name>/config.json and results/<name>/trials.jsonl. Re-running
-skips trials already in trials.jsonl, so an interrupted sweep resumes.
-A trial that raises is recorded with its `error` and the sweep moves on
-(use --fail-fast while debugging).
+skips trials already completed in trials.jsonl, so an interrupted sweep
+resumes (crashed trials are retried; the analysis keeps the last row per
+trial). A trial that raises is recorded with its `error` and `error_kind`
+and the sweep moves on (use --fail-fast while debugging).
 """
 
 import argparse
@@ -24,18 +26,36 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from dap.experiment import CONFIGS, Condition  # noqa: E402
 
+def _factory(name):
+    from dap import baselines
+    from dap.trial import default_controller
+
+    return {"planner": default_controller, "oracle": baselines.oracle_factory,
+            "hold": baselines.hold_factory}[name]
+
+
 def _run_one(args):
     # Each trial samples its own scenario, so it builds its own scene.
-    cfg, cond, seed, fail_fast = args
+    cfg, cond, seed, controller, fail_fast = args
     from dap.metrics import TrialResult
     from dap.trial import run_trial
 
     try:
-        return run_trial(cfg, cond, seed).to_dict()
-    except Exception:
+        return run_trial(cfg, cond, seed, controller_factory=_factory(controller)).to_dict()
+    except Exception as e:
         if fail_fast:
             raise
+        from dap.experiment import trial_rngs
+        from dap.scenario import SCENARIO_PRESETS, ScenarioError, draw_peak_speed
+
+        # Controller crashes are caught inside run_trial (a trial outcome);
+        # anything reaching here is a sampling failure or a harness bug.
         r = TrialResult(seed=seed, **dataclasses.asdict(cond))
+        r.outcome = "error"
+        r.error_kind = "scenario" if isinstance(e, ScenarioError) else "harness"
+        # The drawn partner speed is the scenario stream's first draw.
+        r.target_peak_speed = draw_peak_speed(trial_rngs(seed)["scenario"],
+                                              SCENARIO_PRESETS[cfg.scenario])
         r.error = traceback.format_exc(limit=5)
         return r.to_dict()
 
@@ -45,12 +65,18 @@ def _trial_key(cond_dict, seed):
 
 
 def _done_keys(path):
+    """Trials already completed. Crashed trials are not "done": a resume
+    retries them, and the analysis keeps the last row per trial."""
     done = set()
     if path.exists():
         cond_fields = [f.name for f in dataclasses.fields(Condition)]
         for line in path.read_text().splitlines():
             row = json.loads(line)
-            done.add(_trial_key({k: row[k] for k in cond_fields}, row["seed"]))
+            key = _trial_key({k: row[k] for k in cond_fields}, row["seed"])
+            if row.get("error"):
+                done.discard(key)
+            else:
+                done.add(key)
     return done
 
 
@@ -74,11 +100,17 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="list trials, run nothing")
     ap.add_argument("--fail-fast", action="store_true")
     ap.add_argument("--fresh", action="store_true", help="ignore existing trials.jsonl")
+    ap.add_argument("--controller", default="planner", choices=["planner", "oracle", "hold"],
+                    help="scripted references (dap/baselines.py) run every condition with "
+                         "the same scripted controller; results go to <name>_<controller>")
     args = ap.parse_args()
 
     cfg = CONFIGS[args.config]
     if args.seeds is not None:
         cfg = dataclasses.replace(cfg, n_seeds=args.seeds)
+    if args.controller != "planner":
+        cfg = dataclasses.replace(cfg, name=f"{cfg.name}_{args.controller}",
+                                  planners=(args.controller,))
 
     out_dir = args.out / cfg.name
     trials_path = out_dir / "trials.jsonl"
@@ -96,13 +128,14 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = {
         "config": dataclasses.asdict(cfg),
+        "controller": args.controller,
         "git": _git_commit(),
         "started": datetime.now().isoformat(timespec="seconds"),
     }
     (out_dir / "config.json").write_text(json.dumps(meta, indent=2))
 
     mode = "w" if args.fresh else "a"
-    jobs = [(cfg, c, s, args.fail_fast) for c, s in todo]
+    jobs = [(cfg, c, s, args.controller, args.fail_fast) for c, s in todo]
     with open(trials_path, mode) as f:
         if args.workers > 1:
             with Pool(args.workers) as pool:

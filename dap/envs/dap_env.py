@@ -9,19 +9,24 @@ Design (sources in docs/setup.md, "RL environment"):
   - Plain `gymnasium.Env` wrapping the same kinematic loop as dap/trial.py
     (not pydrake.gym.DrakeGymEnv, which needs a Simulator-driven Diagram and
     in Drake 1.57/1.58 ignores `info_handler` and rejects reset options).
+    It uses the trial's arm limits (dap.trial.limit_command) and the
+    scorer's event rule (dap.scoring.EventMonitor), so an episode ends
+    exactly where the same motion would end a trial.
   - Policy at 20 Hz over a 100 Hz inner loop (robosuite / ManiSkill /
     LIBERO all control at 20 Hz).
-  - Action: Box(-1, 1, (8,)). The first 7 are joint velocity commands as a
-    fraction of each joint's limit; the 8th maps [-1, 1] to the finger
-    hinge target [open, closed].
+  - Action: Box(-1, 1, (7,)): joint velocity commands as a fraction of each
+    joint's limit. The hands are rigid; the task is purely kinematic.
+    Non-finite actions are treated as 0 and counted in info.
   - Observation: Dict with "state" (float32 vector, layout in STATE_LAYOUT)
     and, in "state+depth" mode, "depth" (1, H, W) float32 metres from the
     head camera with D435-style noise and one frame of latency (0 = no
     return). The partner part of "state" is the Kalman filter estimate from
     the stand-in pose sensor, not ground truth; ground truth is in `info`.
-  - Episode ends: terminated on palm contact (dap.metrics.palm_contact) or
-    any collision; truncated
-    `t_extra` s after the partner's motion ends.
+  - Episode ends: terminated at the first contact or collision (the same
+    rule as the scorer); truncated at the same horizon as a trial
+    (dap.trial.horizon_steps). The partner's speed is drawn per episode
+    (scenario preset); `reset(options={"trial_seed": s})` replays a trial
+    seed's scenario for paired evaluation against the planners.
 """
 
 from dataclasses import replace
@@ -31,26 +36,26 @@ import numpy as np
 from gymnasium import spaces
 
 from dap.camera import FrameBuffer, HeadCameraConfig
-from dap.clasp import HINGE_CLOSED
 from dap.depth_noise import DepthNoiseModel
 from dap.estimator import PalmEstimator
-from dap.metrics import palm_angle_error_deg, palm_contact
 from dap.partner import NOISE_ANG, NOISE_POS, NoisyPoseSensor
 from dap.scenario import SCENARIO_PRESETS, sample_scenario
 from dap.scene import OURS, Scene
+from dap.experiment import trial_rngs
+from dap.scoring import EventMonitor, Tolerances
+from dap.trial import horizon_steps, limit_command
 
 # Order and size of the "state" observation vector.
 STATE_LAYOUT = (
     ("q", 7),  # our joint positions (rad)
     ("qdot", 7),  # our joint velocities (rad/s)
-    ("hinge", 1),  # our finger hinge angle (rad, 0 = open)
     ("palm_p", 3),  # our palm face center (m, world)
     ("palm_n", 3),  # our palm normal (world)
     ("partner_p_est", 3),  # KF estimate of the partner palm face center
     ("partner_v_est", 3),  # KF estimate of its velocity (m/s)
     ("partner_n_est", 3),  # filtered partner palm normal
     ("t", 1),  # time since the episode started (s)
-    ("prev_action", 8),
+    ("prev_action", 7),
 )
 STATE_DIM = sum(n for _, n in STATE_LAYOUT)
 
@@ -62,22 +67,22 @@ T_BOUND = 10.0  # s
 class DapEnv(gym.Env):
     metadata = {"render_modes": ["rgb_array"], "render_fps": 20}
 
-    def __init__(self, obs_mode="state", scenario="nominal", speed_scale=1.0, noise_scale=1.0,
-                 control_hz=20.0, sim_dt=0.01, t_extra=1.0, contact_dist=0.01,
-                 camera: HeadCameraConfig | None = None, camera_scale=0.25,
-                 depth_noise="med", reward_fn=None, render_mode=None):
+    def __init__(self, obs_mode="state", scenario="nominal", noise_scale=1.0,
+                 control_hz=20.0, sim_dt=0.01, t_extra=1.0,
+                 touch_dist=Tolerances().touch_dist, rot_tol=Tolerances().rot_tol, camera: HeadCameraConfig | None = None,
+                 camera_scale=0.25, depth_noise="med", reward_fn=None, render_mode=None):
         if obs_mode not in ("state", "state+depth"):
             raise ValueError(f"obs_mode must be 'state' or 'state+depth', got {obs_mode!r}")
         if render_mode is not None and render_mode not in self.metadata["render_modes"]:
             raise ValueError(f"unsupported render_mode {render_mode!r}")
         self.obs_mode = obs_mode
         self.scenario_cfg = SCENARIO_PRESETS[scenario]
-        self.speed_scale = speed_scale
         self.noise_scale = noise_scale
         self.sim_dt = sim_dt
         self.n_sub = max(1, int(round(1.0 / control_hz / sim_dt)))
         self.t_extra = t_extra
-        self.contact_dist = contact_dist
+        self.touch_dist = touch_dist
+        self.rot_tol = rot_tol
         self.reward_fn = reward_fn
         self.render_mode = render_mode
         self.depth_noise = depth_noise
@@ -90,7 +95,7 @@ class DapEnv(gym.Env):
             cam = replace(cam, rgb=True)
         self.camera_cfg = cam
 
-        self.action_space = spaces.Box(-1.0, 1.0, (8,), np.float32)
+        self.action_space = spaces.Box(-1.0, 1.0, (7,), np.float32)
         obs = {"state": spaces.Box(*self._state_bounds(), dtype=np.float32)}
         if obs_mode == "state+depth":
             obs["depth"] = spaces.Box(0.0, cam.z_far, (1, cam.height, cam.width), np.float32)
@@ -107,7 +112,7 @@ class DapEnv(gym.Env):
         v_hi = scene.v_max[idx]
         lo, hi = [], []
         bounds = {
-            "q": (q_lo, q_hi), "qdot": (-v_hi, v_hi), "hinge": ([HINGE_CLOSED], [0.0]),
+            "q": (q_lo, q_hi), "qdot": (-v_hi, v_hi),
             "palm_p": (-POS_BOUND, POS_BOUND), "palm_n": (-1.0, 1.0),
             "partner_p_est": (-POS_BOUND, POS_BOUND),
             "partner_v_est": (-VEL_BOUND, VEL_BOUND), "partner_n_est": (-1.0, 1.0),
@@ -121,27 +126,40 @@ class DapEnv(gym.Env):
 
     # -- gym API ------------------------------------------------------------
     def reset(self, *, seed=None, options=None):
+        """`options={"trial_seed": s}` replays the scenario and sensor-noise
+        stream of experiment trial seed `s` (dap.experiment.trial_rngs), so a
+        policy can be evaluated on exactly the seeds the planners use."""
         super().reset(seed=seed)
         rng = self.np_random
-        sc = sample_scenario(rng, self.scenario_cfg, self.speed_scale,
-                             camera=self.camera_cfg if self.use_camera else None)
+        camera = self.camera_cfg if self.use_camera else None
+        trial_seed = (options or {}).get("trial_seed")
+        if trial_seed is not None:
+            streams = trial_rngs(int(trial_seed))
+            sc = sample_scenario(streams["scenario"], self.scenario_cfg, camera=camera)
+            sensor_rng = streams["sensor"]
+        else:
+            sc = sample_scenario(rng, self.scenario_cfg, camera=camera)
+            sensor_rng = np.random.default_rng(rng.integers(2**63))
         self.scenario = sc
         self.scene = sc.scene
         self.motion = sc.partner
-        sub = np.random.default_rng(rng.integers(2**63))
-        self.sensor = NoisyPoseSensor(self.motion, sub, NOISE_POS * self.noise_scale,
+        self.sensor = NoisyPoseSensor(self.motion, sensor_rng, NOISE_POS * self.noise_scale,
                                       NOISE_ANG * self.noise_scale)
         self.estimator = PalmEstimator(pos_noise=self.sensor.noise_pos)
 
         self.t = 0.0
+        self.k = 0  # inner steps taken; t = k * sim_dt (no float drift)
         self.q = sc.q_ours0.copy()
         self.qdot = np.zeros(7)
-        self.hinge = 0.0
-        self.prev_action = np.zeros(8)
+        self.prev_action = np.zeros(7)
+        self.n_bad_actions = 0
         self.v_max = self.scene.v_max[self.scene.idx[OURS]]
         self.q_lo = self.scene.q_lower[self.scene.idx[OURS]]
         self.q_hi = self.scene.q_upper[self.scene.idx[OURS]]
-        self.t_end = self.motion.t_end + self.t_extra
+        # Same horizon as a trial: the last sample is at k_end * sim_dt.
+        self.k_end = horizon_steps(self.motion.t_end, self.t_extra, self.sim_dt)
+        self.monitor = EventMonitor(self.touch_dist)
+        self.event = None
 
         if self.obs_mode == "state+depth":
             self.noise = DepthNoiseModel.for_camera(self.camera_cfg, self.depth_noise)
@@ -154,22 +172,26 @@ class DapEnv(gym.Env):
         return self._obs(), self._info()
 
     def step(self, action):
-        a = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
+        a = np.asarray(action, dtype=np.float64)
+        if a.shape != (7,) or not np.all(np.isfinite(a)):
+            self.n_bad_actions += 1
+            a = np.zeros(7)
+        a = np.clip(a, -1.0, 1.0)
         self.prev_action = a.copy()
-        qdot_cmd = a[:7] * self.v_max
-        hinge_target = (a[7] + 1.0) / 2.0 * HINGE_CLOSED
-        terminated = False
+        qdot_cmd = a * self.v_max
         for _ in range(self.n_sub):
-            self.t += self.sim_dt
-            q_new = np.clip(self.q + qdot_cmd * self.sim_dt, self.q_lo, self.q_hi)
+            # Move (within the arm's limits), then measure the world at t + dt.
+            q_new, _ = limit_command(self.q + qdot_cmd * self.sim_dt, self.q, self.v_max,
+                                     self.sim_dt, self.q_lo, self.q_hi)
             self.qdot = (q_new - self.q) / self.sim_dt
             self.q = q_new
-            self.hinge = hinge_target  # TODO: rate-limit with the hinge velocity limit
+            self.k += 1
+            self.t = self.k * self.sim_dt
             self._advance_world()
-            if self._contact() or self._collision():
-                terminated = True
+            if self.event is not None or self.k >= self.k_end:
                 break
-        truncated = (not terminated) and self.t >= self.t_end
+        terminated = self.event is not None
+        truncated = (not terminated) and self.k >= self.k_end
         info = self._info()
         reward = float(self.reward_fn(info)) if self.reward_fn is not None else 0.0
         return self._obs(), reward, terminated, truncated, info
@@ -181,9 +203,14 @@ class DapEnv(gym.Env):
 
     # -- internals ----------------------------------------------------------
     def _advance_world(self):
-        """Pose both arms at self.t, update the estimator and the camera."""
+        """Pose both arms at self.t, measure the ground truth, run the event
+        rule, update the estimator and the camera."""
         self.scene.set_partner(self.motion.q(self.t))
-        self.scene.set_ours(self.q, self.hinge)
+        self.scene.set_ours(self.q)
+        m = self.scene.measure()
+        self.truth = m
+        self.event = self.monitor.step(m["palm_p"], m["palm_R"], m["partner_p"],
+                                       m["partner_R"], m["clearance"], m["palm_palm"])
         self.estimator.update(self.t, *self.sensor.measure(self.t))
         if self.obs_mode == "state+depth" and self.frames.due(self.t):
             depth = self.scene.render_depth()
@@ -191,22 +218,11 @@ class DapEnv(gym.Env):
                 np.where(depth > self.camera_cfg.z_far, 0.0, depth), posinf=0.0)
             self.frames.push(self.t, depth.astype(np.float32))
 
-    def _contact_state(self):
-        p_ours, _ = self.scene.palm(OURS)
-        return palm_contact(p_ours, self.motion.p(self.t), self.motion.normal(self.t),
-                            self.contact_dist)
-
-    def _contact(self):
-        return self._contact_state()[0]
-
-    def _collision(self):
-        return self.scene.clearance() < 0.0
-
     def _obs(self):
-        palm_p, palm_n = self.scene.palm(OURS)
+        palm_p, palm_n = self.truth["palm_p"], self.truth["palm_R"][:, 2]
         p_est, v_est, _ = self.estimator.predict(0.0)
         parts = {
-            "q": self.q, "qdot": self.qdot, "hinge": [self.hinge],
+            "q": self.q, "qdot": self.qdot,
             "palm_p": palm_p, "palm_n": palm_n,
             "partner_p_est": p_est, "partner_v_est": v_est,
             "partner_n_est": self.estimator.normal,
@@ -223,26 +239,29 @@ class DapEnv(gym.Env):
         return obs
 
     def _info(self):
-        p_ours, n_ours = self.scene.palm(OURS)
-        p_partner = self.motion.p(self.t)
-        n_partner = self.motion.normal(self.t)
-        clearance = self.scene.clearance()
-        contact, normal_gap, in_plane = palm_contact(p_ours, p_partner, n_partner,
-                                                     self.contact_dist)
+        """Ground truth for reward design and logging (never in the obs)."""
+        m, g = self.truth, self.monitor.last
+        contact = self.event == "contact"
         return {
             "t": self.t,
-            "palm_gap": float(np.linalg.norm(p_ours - p_partner)),  # face-center distance
-            "normal_gap": normal_gap,  # along the partner palm normal (< 0 = passed through)
-            "in_plane_offset": in_plane,
-            "angle_err_deg": palm_angle_error_deg(n_ours, n_partner),
-            "min_arm_dist": float(self.scene.min_arm_distance()),
-            "clearance": float(clearance),
-            "contact": bool(contact),
-            "collision": bool(clearance < 0.0),
-            "partner_p": p_partner.copy(),
+            "event": self.event,  # None | "contact" | "collision"
+            "contact": contact,
+            "collision": self.event == "collision",
+            "success": bool(contact and g["rot_err"] <= self.rot_tol),
+            "palm_dist": float(np.linalg.norm(m["palm_p"] - m["partner_p"])),  # face centers
+            "normal_gap": g["gap"],  # along the partner palm normal (< 0 = passed through)
+            "in_plane_offset": g["in_plane"],
+            "rot_err_deg": g["rot_err"],  # 0 = exactly antiparallel
+            "angle_err_deg": g["angle_err"],
+            "finger_err_deg": g["finger_err"],
+            "clearance": m["clearance"],
+            "palm_palm": m["palm_palm"],
+            "arm_dist": m["arm_dist"],  # at this sample
+            "partner_p": m["partner_p"].copy(),
             "partner_v": self.motion.v(self.t).copy(),
-            "partner_n": n_partner.copy(),
+            "partner_n": m["partner_R"][:, 2].copy(),
             "t_meet": float(self.motion.t_meet),
+            "partner_peak_speed": float(self.motion.peak_speed),
+            "n_bad_actions": self.n_bad_actions,
             "scenario_attempts": int(self.scenario.attempts),
         }
-

@@ -3,7 +3,7 @@
 The meeting type is fixed for now: palms parallel and facing each other, with
 the fingers pointing in opposite directions (two flat hands pressed together
 with one rotated 180 deg about the shared palm-plane axis). In palm frames
-(+z = palm normal, +x = toward the finger hinge) that is
+(+z = palm normal, +x = toward the fingers) that is
 
     R_{ours, partner} = RotY(pi):   x_partner = -x_ours, z_partner = -z_ours.
 
@@ -14,11 +14,13 @@ not have to pick a meeting pose first: the palm-to-palm constraint is
 expressed between the two palm frames. A target point can optionally pin
 where the meeting happens.
 
-Approach after Vahrenkamp et al. (IROS 2009) dual-arm hand-off and Bauml et
-al. (2010) catch-configuration NLPs; timings in docs/setup.md (~3 ms median
-with SNOPT on Drake 1.58). The tolerances describe a *low-quality* dap: they
-are looser than nothing physical but tighter than the success tolerances in
-ExperimentConfig, so "feasible" means a scorable dap exists.
+Approach after Vahrenkamp et al. (IROS 2009) dual-arm IK for re-grasping
+and Bauml et al. (2010) catch-configuration NLPs; timings in docs/setup.md
+(~3 ms median with SNOPT on Drake 1.58). Even the loose tier is within the
+contact definition and the success tolerance (dap.scoring), so "feasible"
+means a successful dap exists. Hand-hand pairs are filtered in the IK's own
+context; each solution is then re-checked in the full scene, where only the
+palm-palm pair may touch.
 """
 
 import time
@@ -88,8 +90,9 @@ def find_meeting(scene: Scene, rng, target=None, target_box=0.03,
     arms at Q_READY); later attempts start from uniform random configurations.
     """
     plant = scene.plant
-    ctx = scene.diagram.CreateDefaultContext()
-    pc = plant.GetMyMutableContextFromRoot(ctx)
+    # Hand-hand pairs are excluded here: the meeting puts the hands adjacent
+    # by construction; the clearance constraint is for everything else.
+    _, pc = scene.new_context(filter_hands=True)
     F_ours, F_partner = scene.palm_frames[OURS], scene.palm_frames[PARTNER]
 
     ik = InverseKinematics(plant, pc)
@@ -113,9 +116,6 @@ def find_meeting(scene: Scene, rng, target=None, target_box=0.03,
         ik.AddPositionConstraint(F_ours, P_PALM_FACE, plant.world_frame(),
                                  t - target_box, t + target_box)
     ik.AddMinimumDistanceLowerBoundConstraint(tol.clearance)
-    for name in (OURS, PARTNER):  # fingers open
-        i = scene.hinge_idx[name]
-        prog.AddBoundingBoxConstraint(0.0, 0.0, q[i])
 
     if q_seed is None:
         q_seed = scene.q()
@@ -125,12 +125,12 @@ def find_meeting(scene: Scene, rng, target=None, target_box=0.03,
     for k in range(restarts):
         guess = q_seed if k == 0 else rng.uniform(scene.q_lower, scene.q_upper)
         guess = np.array(guess, float)
-        for name in (OURS, PARTNER):
-            guess[scene.hinge_idx[name]] = 0.0
         prog.SetInitialGuess(q, guess)
         result = Solve(prog)
         if result.is_success():
             qs = result.GetSolution(q)
+            if not _hands_clear(scene, qs):
+                continue  # the IK ignored hand-hand pairs; this meeting penetrates
             plant.SetPositions(pc, qs)
             X_o = plant.CalcRelativeTransform(pc, plant.world_frame(), F_ours)
             X_p = plant.CalcRelativeTransform(pc, plant.world_frame(), F_partner)
@@ -142,6 +142,19 @@ def find_meeting(scene: Scene, rng, target=None, target_box=0.03,
                 solve_ms=(time.perf_counter() - t0) * 1e3, attempts=k + 1,
             )
     return None
+
+
+def _hands_clear(scene: Scene, q):
+    """True if, at full positions `q`, no geometry pair penetrates in the
+    scene itself (hand-hand pairs included; only the palm-palm contact pair
+    is left to the scorer). The IK above excludes hand-hand pairs, so its
+    solutions are re-checked here."""
+    q_saved = scene.q()
+    scene.set_q(q)
+    try:
+        return scene.clearance() >= 0.0
+    finally:
+        scene.set_q(q_saved)
 
 
 def min_jerk_time(q_from, q_to, v_max):

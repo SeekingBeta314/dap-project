@@ -1,9 +1,12 @@
 # Perception pipeline (planned, not implemented)
 
 Until this pipeline exists, the controller gets the partner palm pose from
-`dap.partner.NoisyPoseSensor`, which is ground truth plus Gaussian noise. The
-head camera, depth noise and frame timing it will consume already exist (see
-`docs/setup.md`, sections 6 and 7).
+`dap.partner.NoisyPoseSensor`: ground truth plus i.i.d. Gaussian noise
+(5 mm, 2°), every 10 ms, with no latency, no dropouts and no occlusion. That
+is more favourable than the camera will be (`docs/setup.md`, section 10).
+The head camera, depth noise and frame timing the pipeline will consume
+already exist (sections 6 and 7) and already feed the RL env's depth
+observation.
 
 ## Per frame (30 Hz, delivered with one frame of latency by `camera.FrameBuffer`)
 
@@ -39,7 +42,7 @@ head camera, depth noise and frame timing it will consume already exist (see
   measurement.
 - **Dropouts:** when a frame has no measurement, run predict only. Most
   dropouts happen near contact, when our own hand occludes the partner's palm
-  from the head camera, so the handoff to the clasp controller will often run
+  from the head camera, so the last moments before the touch will often run
   on prediction alone.
 
 ## Metrics to add

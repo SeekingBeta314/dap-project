@@ -140,8 +140,11 @@ def collision_geometries(plant, model_instances):
 def add_scene(builder, time_step=1e-3, layout: SceneLayout = NOMINAL_LAYOUT, static=True):
     """Add the plant + scene graph to `builder`. Returns (plant, scene_graph).
 
-    The two hands are excluded from colliding with each other: palm-to-palm
-    contact is the goal, so it must not count as a collision.
+    Every geometry pair is checked, including hand-hand pairs, so hands
+    cannot pass through each other unnoticed. The one special pair is our
+    palm vs. the partner palm: touching it is the goal, so `Scene.clearance`
+    leaves it out and the scorer (dap/scoring.py) decides whether a palm-palm
+    overlap is the dap (approached from the front) or a collision.
     """
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=time_step)
     parser = make_parser(plant)
@@ -149,12 +152,6 @@ def add_scene(builder, time_step=1e-3, layout: SceneLayout = NOMINAL_LAYOUT, sta
     if static:
         _add_static_geometry(plant, layout)
     plant.Finalize()
-    hands = [plant.GetModelInstanceByName(f"{n}_hand") for n in (OURS, PARTNER)]
-    scene_graph.collision_filter_manager().Apply(
-        CollisionFilterDeclaration().ExcludeBetween(
-            collision_geometries(plant, hands[:1]), collision_geometries(plant, hands[1:])
-        )
-    )
     return plant, scene_graph
 
 
@@ -197,14 +194,11 @@ class Scene:
         self.models = {n: p.GetModelInstanceByName(n) for n in (OURS, PARTNER)}
         self.hands = {n: p.GetModelInstanceByName(f"{n}_hand") for n in (OURS, PARTNER)}
         self.palm_frames = {n: p.GetFrameByName("palm", self.hands[n]) for n in (OURS, PARTNER)}
-        # Index of each arm's 7 joints / each hinge in the full position vector.
+        # Index of each arm's 7 joints in the full position vector (the hands
+        # are rigid, so the arms' joints are all there is).
         self.idx = {
             n: np.array([p.GetJointByName(f"iiwa_joint_{i}", self.models[n]).position_start()
                          for i in range(1, 8)])
-            for n in (OURS, PARTNER)
-        }
-        self.hinge_idx = {
-            n: p.GetJointByName("finger_hinge", self.hands[n]).position_start()
             for n in (OURS, PARTNER)
         }
         self.q_lower = p.GetPositionLowerLimits()
@@ -218,6 +212,12 @@ class Scene:
                     for g in p.GetCollisionGeometriesForBody(p.get_body(b)):
                         self._owner[g] = name
         self._inspector = inspector
+        # The palm-palm pair (the dap contact itself).
+        self.palm_geoms = {
+            n: p.GetCollisionGeometriesForBody(p.GetBodyByName("palm", self.hands[n]))[0]
+            for n in (OURS, PARTNER)
+        }
+        self._palm_pair = frozenset(self.palm_geoms.values())
         self.camera = None
         if camera is not None:
             self.camera = self.diagram.GetSubsystemByName(camera.name)
@@ -230,22 +230,39 @@ class Scene:
     def set_q(self, q):
         self.plant.SetPositions(self.plant_context, q)
 
-    def set_arm(self, name, q_arm, hinge=None):
+    def set_arm(self, name, q_arm):
         q = self.q()
         q[self.idx[name]] = q_arm
-        if hinge is not None:
-            q[self.hinge_idx[name]] = hinge
         self.set_q(q)
 
-    def set_ours(self, q_arm, hinge=0.0):
-        self.set_arm(OURS, q_arm, hinge)
+    def set_ours(self, q_arm):
+        self.set_arm(OURS, q_arm)
 
-    def set_partner(self, q_arm, hinge=0.0):
-        self.set_arm(PARTNER, q_arm, hinge)
+    def set_partner(self, q_arm):
+        self.set_arm(PARTNER, q_arm)
 
     def arm_q(self, name, q_full=None):
         q = self.q() if q_full is None else q_full
         return q[self.idx[name]].copy()
+
+    def new_context(self, filter_hands=False):
+        """A fresh diagram context (and its plant context) for planning or
+        IK, separate from the scene's own context so nothing done there can
+        move the arms the scene is measuring. With `filter_hands`, hand-hand
+        collision pairs are excluded in that context only (used by IK that
+        constructs palm-to-palm meetings, where the hands are adjacent by
+        design)."""
+        ctx = self.diagram.CreateDefaultContext()
+        if filter_hands:
+            sg_ctx = self.scene_graph.GetMyMutableContextFromRoot(ctx)
+            hands = [self.hands[OURS]], [self.hands[PARTNER]]
+            self.scene_graph.collision_filter_manager(sg_ctx).Apply(
+                CollisionFilterDeclaration().ExcludeBetween(
+                    collision_geometries(self.plant, hands[0]),
+                    collision_geometries(self.plant, hands[1]),
+                )
+            )
+        return ctx, self.plant.GetMyMutableContextFromRoot(ctx)
 
     # -- queries ----------------------------------------------------------
     def palm_pose(self, name=OURS):
@@ -261,11 +278,15 @@ class Scene:
     def _query(self):
         return self.scene_graph.get_query_output_port().Eval(self.sg_context)
 
+    def _is_palm_pair(self, p):
+        return frozenset((p.id_A, p.id_B)) == self._palm_pair
+
     def min_distance(self, max_distance=0.1):
-        """Smallest signed distance over all unfiltered collision pairs within
-        `max_distance` (hand-hand pairs are filtered), and the pair's names.
-        Returns (inf, None) if nothing is that close."""
-        pairs = self._query().ComputeSignedDistancePairwiseClosestPoints(max_distance)
+        """Smallest signed distance over every pair except the palm-palm pair,
+        within `max_distance`, and that pair's geometry names. Returns
+        (inf, None) if nothing is that close."""
+        pairs = [p for p in self._query().ComputeSignedDistancePairwiseClosestPoints(max_distance)
+                 if not self._is_palm_pair(p)]
         if not pairs:
             return np.inf, None
         p = min(pairs, key=lambda r: r.distance)
@@ -273,23 +294,54 @@ class Scene:
         return p.distance, names
 
     def clearance(self, ignore=None, max_distance=0.1):
-        """Smallest signed distance over unfiltered pairs, skipping any pair
-        that involves geometry of the arm/hand named `ignore` (OURS or
-        PARTNER). Returns inf if nothing is within `max_distance`."""
-        pairs = self._query().ComputeSignedDistancePairwiseClosestPoints(max_distance)
+        """Smallest signed distance over every pair except the palm-palm pair
+        (hand-hand pairs included), skipping pairs that involve the arm/hand
+        named `ignore` (OURS or PARTNER). inf if nothing is within
+        `max_distance`. Negative = penetration = collision."""
         best = np.inf
-        for p in pairs:
+        for p in self._query().ComputeSignedDistancePairwiseClosestPoints(max_distance):
+            if self._is_palm_pair(p):
+                continue
             if ignore and ignore in (self._owner.get(p.id_A), self._owner.get(p.id_B)):
                 continue
             best = min(best, p.distance)
         return best
 
+    def palm_palm_distance(self):
+        """Signed distance between our palm box and the partner palm box
+        (negative = overlapping)."""
+        r = self._query().ComputeSignedDistancePairClosestPoints(
+            self.palm_geoms[OURS], self.palm_geoms[PARTNER])
+        return float(r.distance)
+
+    def measure(self, max_distance=0.5):
+        """Ground-truth snapshot for scoring (dap.scoring): both palm faces
+        and frames, and the signed distances, from one distance query.
+        `clearance` and `arm_dist` are as in `clearance()` and
+        `min_arm_distance()` (inf when nothing is within `max_distance`)."""
+        clearance, arm = np.inf, np.inf
+        for p in self._query().ComputeSignedDistancePairwiseClosestPoints(max_distance):
+            if self._is_palm_pair(p):
+                continue
+            clearance = min(clearance, p.distance)
+            a, b = self._owner.get(p.id_A), self._owner.get(p.id_B)
+            if a and b and a != b:
+                arm = min(arm, p.distance)
+        X_o, X_p = self.palm_pose(OURS), self.palm_pose(PARTNER)
+        return dict(
+            palm_p=X_o @ P_PALM_FACE, palm_R=X_o.rotation().matrix(),
+            partner_p=X_p @ P_PALM_FACE, partner_R=X_p.rotation().matrix(),
+            clearance=float(clearance), palm_palm=self.palm_palm_distance(),
+            arm_dist=float(arm),
+        )
+
     def min_arm_distance(self, max_distance=0.5):
         """Smallest signed distance between any geometry of our arm/hand and
-        any geometry of the partner arm/hand (hand-hand pairs excluded)."""
-        pairs = self._query().ComputeSignedDistancePairwiseClosestPoints(max_distance)
+        any geometry of the partner arm/hand, except the palm-palm pair."""
         best = np.inf
-        for p in pairs:
+        for p in self._query().ComputeSignedDistancePairwiseClosestPoints(max_distance):
+            if self._is_palm_pair(p):
+                continue
             a, b = self._owner.get(p.id_A), self._owner.get(p.id_B)
             if a and b and a != b:
                 best = min(best, p.distance)

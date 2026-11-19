@@ -52,7 +52,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--scenario", default="nominal", choices=sorted(SCENARIO_PRESETS))
-    ap.add_argument("--speed-scale", type=float, default=1.0)
     ap.add_argument("--animate", action="store_true")
     ap.add_argument("--depth", type=Path, help="save the head-camera depth image here")
     ap.add_argument("--noise", default="med", help="depth noise preset for --depth")
@@ -61,10 +60,12 @@ def main():
 
     camera = HeadCameraConfig() if args.depth else None
     sc = sample_scenario(np.random.default_rng(args.seed), SCENARIO_PRESETS[args.scenario],
-                         args.speed_scale, camera=camera)
+                         camera=camera)
     lay = sc.layout
     print(f"layout: distance={lay.distance:.2f} m lateral={lay.lateral:+.2f} m "
           f"yaw={lay.yaw_deg:+.0f} deg height={lay.height:+.2f} m")
+    print(f"partner peak speed={sc.partner.peak_speed:.2f} m/s "
+          f"(drawn {sc.target_peak_speed:.2f}), reachable in time={sc.reachable_in_time}")
     print(f"t_meet={sc.t_meet:.2f} s, dap quality={sc.witness.quality}, "
           f"attempts={sc.attempts}, rejections={sc.rejections}, sampled in {sc.sample_s:.2f} s")
 
@@ -73,7 +74,7 @@ def main():
     if args.no_meshcat:
         return
 
-    from pydrake.all import Rgba, Sphere, StartMeshcat
+    from pydrake.all import RigidTransform, Rgba, Sphere, StartMeshcat
 
     meshcat = StartMeshcat()
     view = Scene(lay, meshcat=meshcat)
@@ -84,8 +85,6 @@ def main():
     for name, p, color in [("meet", sc.partner.p_meet, Rgba(0.2, 0.8, 0.3, 1)),
                            ("prior", sc.meet_prior, Rgba(0.5, 0.5, 0.5, 0.6))]:
         meshcat.SetObject(name, Sphere(0.015), color)
-        from pydrake.all import RigidTransform
-
         meshcat.SetTransform(name, RigidTransform(p))
     print(f"Meshcat: {meshcat.web_url()}")
     if args.animate:

@@ -26,7 +26,11 @@ def test_nominal_layout_has_a_clean_dap():
     assert np.linalg.norm(p_o - p_p) < 0.01  # faces touch
     assert np.dot(n_o, n_p) < -0.999  # palms anti-parallel
     assert _rel_angle_deg(w) < 2.5  # fingers point opposite ways
-    assert scene.clearance() > 0.009  # nothing else collides
+    # Nothing but the two palm boxes touches. Hand-hand pairs count: the
+    # finger plates sit 5 mm behind the palm faces, so they clear even with
+    # the tight tier's 2 mm position tolerance.
+    assert scene.clearance() > 0.0
+    assert abs(scene.palm_palm_distance()) < 0.005
     assert np.all(np.abs(np.asarray(p_o) - [0.7, 0, 0.6]) < 0.031)
 
 

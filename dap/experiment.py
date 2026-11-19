@@ -1,11 +1,14 @@
 """Experiment definitions: what to sweep, and the named configs we run.
 
 A config expands to (Condition, seed) trials. Every condition uses the same
-seeds, and a seed fixes the scenario (layout, partner motion, our start
-configuration), the sensor noise, and the checkpoints, so "plan once" and
-"replan" are compared on identical scenarios. Conditions with a different
-speed_scale draw different scenarios from the same seed (the speed changes
-which samples pass the feasibility checks).
+seeds, and a seed fixes the whole scenario (layout, partner path and speed,
+our start configuration) and the sensor noise stream, so conditions are
+compared on identical scenarios (a paired design; analysis in
+scripts/analyze.py and dap/stats.py).
+
+Partner speed is not a condition: every scenario draws its own target peak
+palm speed (dap.partner.PathConfig.peak_speed), so a run covers the whole
+speed range and results are analysed against the realized speed.
 """
 
 import itertools
@@ -13,14 +16,13 @@ from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
+from dap.scoring import Tolerances
+
 
 @dataclass(frozen=True)
 class Condition:
-    planner: str  # "once" | "replan"
-    speed_scale: float  # > 1 = faster partner
-    noise_scale: float  # multiplies the sensor noise std
-    n_checkpoints: int
-    velocity_match: bool = True  # match partner hand velocity at contact
+    planner: str  # "once" | "replan" | a baseline name
+    noise_scale: float  # multiplies the stand-in sensor's noise std
 
     def key(self):
         return asdict(self)
@@ -30,38 +32,27 @@ class Condition:
 class ExperimentConfig:
     name: str
     planners: tuple = ("once", "replan")
-    speed_scales: tuple = (1.0,)
     noise_scales: tuple = (1.0,)
-    checkpoint_counts: tuple = (0,)
-    velocity_match: tuple = (True,)
     n_seeds: int = 50
     first_seed: int = 0
     scenario: str = "nominal"  # key into dap.scenario.SCENARIO_PRESETS
 
     # Simulation
     dt: float = 0.01  # s, sensor + control period
-    t_extra: float = 1.0  # s, keep simulating past the partner's nominal arrival
-    replan_hz: float = 10.0
-    handoff_dist: float = 0.04  # m, palm gap at which the clasp controller takes over
+    t_extra: float = 1.0  # s, keep simulating past the end of the partner's motion
 
-    # Success tolerances. TODO: placeholders until we settle proposal section 7.
-    contact_dist: float = 0.01  # m, palm gap that counts as "touching"
-    success_pos_tol: float = 0.03  # m, palm-center offset in the palm plane
-    success_angle_tol: float = 15.0  # deg, between palm normals
-    vel_window: float = 0.2  # s, window before contact for velocity mismatch
+    replan_hz: float = 10.0
+
+    # How a dap is judged (dap.scoring). Placeholders (Ours) until the team
+    # settles them.
+    tolerances: Tolerances = Tolerances()
 
     notes: str = ""
     extra: dict = field(default_factory=dict)
 
     def conditions(self):
-        for planner, speed, noise, n_ck, vm in itertools.product(
-            self.planners,
-            self.speed_scales,
-            self.noise_scales,
-            self.checkpoint_counts,
-            self.velocity_match,
-        ):
-            yield Condition(planner, speed, noise, n_ck, vm)
+        for planner, noise in itertools.product(self.planners, self.noise_scales):
+            yield Condition(planner, noise)
 
     def seeds(self):
         return range(self.first_seed, self.first_seed + self.n_seeds)
@@ -76,50 +67,38 @@ class ExperimentConfig:
 
 
 def trial_rngs(seed):
-    """Independent streams for the scenario (layout, partner motion, start
-    configuration), sensor noise, and checkpoints."""
+    """Independent streams for the scenario (layout, partner motion and
+    speed, our start configuration) and the sensor noise."""
     return {
         "scenario": np.random.default_rng([seed, 0]),
         "sensor": np.random.default_rng([seed, 1]),
-        "checkpoints": np.random.default_rng([seed, 2]),
     }
 
 
 CONFIGS = {
-    # Plumbing check: a handful of easy trials end to end.
+    # Plumbing check: a handful of trials end to end.
     "smoke": ExperimentConfig(
         name="smoke",
         planners=("replan",),
         n_seeds=3,
         notes="End-to-end plumbing check, not a result.",
     ),
-    # H1: replanning beats planning once when there is time to react.
+    # H1: replanning beats planning once. 150 paired seeds per noise level
+    # give ~80% power (alpha 0.05, McNemar) for a 10-point success-rate
+    # difference when ~20% of pairs are discordant (docs/setup.md).
     "replan_vs_once": ExperimentConfig(
         name="replan_vs_once",
         planners=("once", "replan"),
-        speed_scales=(0.75, 1.0, 1.5),
         noise_scales=(0.5, 1.0, 2.0),
-        checkpoint_counts=(0, 2),
-        n_seeds=50,
-        notes="H1. Paired seeds across planners.",
+        n_seeds=150,
+        notes="H1. Paired seeds across planners; McNemar per noise level.",
     ),
-    # H2: fast partners and many checkpoints hit joint velocity limits.
+    # H2: success falls with partner speed once our joint velocity limits
+    # bind. One planner, many seeds, analysed against realized partner speed.
     "speed_limits": ExperimentConfig(
         name="speed_limits",
         planners=("replan",),
-        speed_scales=(0.5, 1.0, 1.5, 2.0, 3.0),
-        checkpoint_counts=(0, 2, 4),
-        n_seeds=30,
-        notes="H2. Look at infeasible replans and success vs speed x checkpoints.",
-    ),
-    # H3: velocity matching at contact makes the clasp forgiving of timing error.
-    "velocity_match": ExperimentConfig(
-        name="velocity_match",
-        planners=("replan",),
-        speed_scales=(1.0, 1.5),
-        noise_scales=(1.0, 2.0),
-        velocity_match=(True, False),
-        n_seeds=50,
-        notes="H3. Compare clasp success and time_err with/without velocity matching.",
+        n_seeds=300,
+        notes="H2. Success / loss vs. realized partner peak speed (binned).",
     ),
 }

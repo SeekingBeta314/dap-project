@@ -1,5 +1,11 @@
 """Kalman filter on the partner palm: constant-acceleration position model
-plus a low-pass estimate of the palm normal."""
+plus a low-pass estimate of the palm normal.
+
+Known model mismatch (docs/setup.md, "Methodology notes"): the partner's
+min-jerk approach decelerates through the second half of the reach, so a
+constant-acceleration model lags it and its velocity estimate is only
+roughly right mid-approach. Human reaches are not min-jerk either, so any
+fixed motion model is an approximation; we accept this for now."""
 
 import numpy as np
 
