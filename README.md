@@ -41,7 +41,7 @@ Planned perception pipeline: [docs/perception_pipeline.md](docs/perception_pipel
 | `scripts/run_experiment.py` | Run a config, append to `results/<name>/trials.jsonl` | done |
 | `scripts/analyze.py` | Paired analysis: rates with Wilson CIs, McNemar, paired bootstrap of the loss, success vs. partner speed | done |
 | `tests/` | Scene, camera, depth noise, feasibility, scenario, scoring, stats, trial harness, env (gymnasium `check_env`) | passing |
-| `docs/` | Setup (with sources), the planned perception pipeline, and pending fixes for the report draft (`report_fixes.md`) | |
+| `docs/` | Setup (with sources), the planned perception pipeline, and a record of edits made to the report (`report_fixes.md`) | |
 | `notebooks/` | Scratch notebooks (clear outputs before committing) | |
 | `results/` | Experiment outputs (git-ignored) | |
 
