@@ -24,23 +24,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from dap.experiment import CONFIGS, Condition  # noqa: E402
 
-_scene = None
-
-
-def _init_worker():
-    global _scene
-    from dap.trial import Scene
-
-    _scene = Scene()
-
-
 def _run_one(args):
+    # Each trial samples its own scenario, so it builds its own scene.
     cfg, cond, seed, fail_fast = args
     from dap.metrics import TrialResult
     from dap.trial import run_trial
 
     try:
-        return run_trial(cfg, cond, seed, _scene).to_dict()
+        return run_trial(cfg, cond, seed).to_dict()
     except Exception:
         if fail_fast:
             raise
@@ -114,11 +105,10 @@ def main():
     jobs = [(cfg, c, s, args.fail_fast) for c, s in todo]
     with open(trials_path, mode) as f:
         if args.workers > 1:
-            with Pool(args.workers, initializer=_init_worker) as pool:
+            with Pool(args.workers) as pool:
                 rows = pool.imap_unordered(_run_one, jobs)
                 _write_rows(rows, f, len(jobs))
         else:
-            _init_worker()
             _write_rows(map(_run_one, jobs), f, len(jobs))
     print(f"wrote {trials_path}")
 

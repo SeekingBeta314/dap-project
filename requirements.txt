@@ -3,4 +3,5 @@ manipulation>=2026.9.17
 numpy
 matplotlib
 pandas
+gymnasium>=1.2,<2
 pytest

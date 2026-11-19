@@ -1,8 +1,11 @@
 """Experiment definitions: what to sweep, and the named configs we run.
 
 A config expands to (Condition, seed) trials. Every condition uses the same
-seeds, and a seed fixes the partner path, sensor noise, and checkpoints, so
-"plan once" and "replan" are compared on identical approaches.
+seeds, and a seed fixes the scenario (layout, partner motion, our start
+configuration), the sensor noise, and the checkpoints, so "plan once" and
+"replan" are compared on identical scenarios. Conditions with a different
+speed_scale draw different scenarios from the same seed (the speed changes
+which samples pass the feasibility checks).
 """
 
 import itertools
@@ -33,6 +36,7 @@ class ExperimentConfig:
     velocity_match: tuple = (True,)
     n_seeds: int = 50
     first_seed: int = 0
+    scenario: str = "nominal"  # key into dap.scenario.SCENARIO_PRESETS
 
     # Simulation
     dt: float = 0.01  # s, sensor + control period
@@ -72,9 +76,10 @@ class ExperimentConfig:
 
 
 def trial_rngs(seed):
-    """Independent streams for partner path, sensor noise, and checkpoints."""
+    """Independent streams for the scenario (layout, partner motion, start
+    configuration), sensor noise, and checkpoints."""
     return {
-        "partner": np.random.default_rng([seed, 0]),
+        "scenario": np.random.default_rng([seed, 0]),
         "sensor": np.random.default_rng([seed, 1]),
         "checkpoints": np.random.default_rng([seed, 2]),
     }

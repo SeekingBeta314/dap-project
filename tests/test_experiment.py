@@ -3,9 +3,9 @@ from types import SimpleNamespace
 import numpy as np
 
 from dap.experiment import CONFIGS, ExperimentConfig, trial_rngs
-from dap.partner import PartnerPath, sample_params
-from dap.trial import TrialLog, score
 from dap.metrics import TrialResult
+from dap.scenario import SCENARIO_PRESETS, sample_scenario
+from dap.trial import TrialLog, score
 
 
 def test_config_expands_to_full_grid():
@@ -14,10 +14,13 @@ def test_config_expands_to_full_grid():
     assert len(trials) == cfg.n_trials() == 2 * 3 * 3 * 2 * cfg.n_seeds
 
 
-def test_seed_fixes_partner_path():
-    a = PartnerPath(sample_params(trial_rngs(7)["partner"]))
-    b = PartnerPath(sample_params(trial_rngs(7)["partner"]))
-    assert np.allclose(a.p(0.5), b.p(0.5))
+def test_seed_fixes_scenario():
+    cfg = SCENARIO_PRESETS["nominal"]
+    a = sample_scenario(trial_rngs(7)["scenario"], cfg)
+    b = sample_scenario(trial_rngs(7)["scenario"], cfg)
+    assert a.layout == b.layout
+    assert np.allclose(a.q_ours0, b.q_ours0)
+    assert np.allclose(a.partner.p(0.5), b.partner.p(0.5))
 
 
 def _fake_controller(**kw):
@@ -34,7 +37,7 @@ def _log_meeting_at(t_meet, offset=np.zeros(3)):
         log.append(t=t, q=np.zeros(7), palm_p=np.array([x, 0, 0.6]) + offset,
                    palm_n=np.array([1.0, 0, 0]), partner_p=np.array([0.7, 0, 0.6]),
                    partner_n=np.array([-1.0, 0, 0]), partner_v=np.zeros(3),
-                   phase="approach")
+                   arm_dist=0.2, clearance=0.05, phase="approach")
     return log
 
 
@@ -57,3 +60,39 @@ def test_score_offset_palm_fails_position_tolerance():
     r = score(cfg, log, np.zeros((0, 3)), _fake_controller(), _result())
     assert r.contact and not r.success
     assert abs(r.pos_err - 0.05) < 1e-6
+
+
+def test_score_collision_fails():
+    cfg = ExperimentConfig(name="t")
+    log = _log_meeting_at(1.0)
+    log.clearance[5] = -0.001
+    r = score(cfg, log, np.zeros((0, 3)), _fake_controller(), _result())
+    assert r.contact and r.collision and not r.success
+    assert abs(r.min_arm_dist - 0.2) < 1e-9
+
+
+def test_contact_counts_pass_through_and_needs_overlap():
+    from dap.metrics import palm_contact
+
+    p_partner, n_partner = np.array([0.7, 0, 0.6]), np.array([-1.0, 0, 0])
+    # 2 cm in front: no contact yet.
+    assert not palm_contact([0.68, 0, 0.6], p_partner, n_partner, 0.01)[0]
+    # A fast step that lands 1 cm *behind* the partner face still counts.
+    hit, gap, in_plane = palm_contact([0.71, 0.0, 0.6], p_partner, n_partner, 0.01)
+    assert hit and gap < 0 and in_plane < 1e-9
+    # Touching the plane but 8 cm off to the side: palms do not overlap.
+    assert not palm_contact([0.7, 0.08, 0.6], p_partner, n_partner, 0.01)[0]
+
+
+def test_score_detects_step_over():
+    cfg = ExperimentConfig(name="t")
+    log = TrialLog()
+    # Our palm jumps from 2 cm in front to 1.5 cm behind in one 10 ms step.
+    for t, x in [(0.0, 0.5), (0.01, 0.68), (0.02, 0.715), (0.03, 0.72)]:
+        log.append(t=t, q=np.zeros(7), palm_p=np.array([x, 0.004, 0.6]),
+                   palm_n=np.array([1.0, 0, 0]), partner_p=np.array([0.7, 0, 0.6]),
+                   partner_n=np.array([-1.0, 0, 0]), partner_v=np.zeros(3),
+                   arm_dist=0.2, clearance=0.05, phase="approach")
+    r = score(cfg, log, np.zeros((0, 3)), _fake_controller(t_meet_pred=0.02), _result())
+    assert r.contact and abs(r.t_contact - 0.02) < 1e-9
+    assert abs(r.pos_err - 0.004) < 1e-9 and r.success

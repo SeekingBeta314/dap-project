@@ -25,6 +25,11 @@ class ReplanningController:
     This is the contract `dap.trial.run_trial` drives. The trial loop is
     kinematic for now: whatever (q, qdot) `step` returns is where our arm is.
 
+    `reset` receives the trial's shared plant context, which also poses the
+    partner arm for rendering and collision checks. Use it read-only. For
+    IK or trajectory optimization, create a fresh context
+    (`diagram.CreateDefaultContext()`), as dap/ik.py and dap/feasibility.py do.
+
     Attributes the trial loop reads:
       phase          "approach" | "clasp" | "done"; "done" ends the trial
       hinge          commanded finger-hinge angle (rad), 0 = open
