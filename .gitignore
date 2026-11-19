@@ -10,3 +10,5 @@ results/*
 !results/.gitkeep
 *.mp4
 *.mov
+
+banks/

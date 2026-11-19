@@ -68,10 +68,28 @@ class ExperimentConfig:
 
 def trial_rngs(seed):
     """Independent streams for the scenario (layout, partner motion and
-    speed, our start configuration) and the sensor noise."""
+    speed, our start configuration), the stand-in sensor's noise, and the
+    head camera's depth noise. Experiments (evaluation) use these."""
     return {
         "scenario": np.random.default_rng([seed, 0]),
         "sensor": np.random.default_rng([seed, 1]),
+        "camera": np.random.default_rng([seed, 2]),
+    }
+
+
+# Last entropy word of every training stream. Evaluation streams have two
+# words ([seed, k]); training streams have three ([seed, k, TRAIN_TAG]), so no
+# training seed can reproduce an evaluation scenario.
+TRAIN_TAG = 0x7A11
+
+
+def train_rngs(seed):
+    """Like `trial_rngs`, for training data (dap.bank): the same kinds of
+    streams, disjoint from every evaluation seed."""
+    return {
+        "scenario": np.random.default_rng([seed, 0, TRAIN_TAG]),
+        "sensor": np.random.default_rng([seed, 1, TRAIN_TAG]),
+        "camera": np.random.default_rng([seed, 2, TRAIN_TAG]),
     }
 
 

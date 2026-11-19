@@ -1,12 +1,18 @@
-# Perception pipeline (planned, not implemented)
+# Perception pipeline (planned, not implemented; optional)
 
-Until this pipeline exists, the controller gets the partner palm pose from
-`dap.partner.NoisyPoseSensor`: ground truth plus i.i.d. Gaussian noise
-(5 mm, 2°), every 10 ms, with no latency, no dropouts and no occlusion. That
-is more favourable than the camera will be (`docs/setup.md`, section 10).
-The head camera, depth noise and frame timing the pipeline will consume
-already exist (sections 6 and 7) and already feed the RL env's depth
-observation.
+The main method is now an end-to-end policy that learns its own perception
+from depth frames (`pixels` mode, `docs/setup.md` section 8), so this
+explicit pipeline is no longer on the critical path. It is still useful
+for a modular comparison (depth -> palm pose -> filter -> controller), and
+its palm estimate could serve as an auxiliary training target for the pixel
+policy.
+
+Until it exists, the planner interface and the `state` env modes get the
+partner palm pose from `dap.partner.NoisyPoseSensor`: ground truth plus
+i.i.d. Gaussian noise (5 mm, 2°), every 10 ms, with no latency, no dropouts
+and no occlusion. That is more favourable than the camera will be
+(`docs/setup.md`, section 10). The head camera, depth noise and frame
+timing the pipeline will consume already exist (sections 6 and 7).
 
 ## Per frame (30 Hz, delivered with one frame of latency by `camera.FrameBuffer`)
 

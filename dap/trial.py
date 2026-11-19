@@ -56,6 +56,29 @@ def default_controller(cfg: ExperimentConfig, cond: Condition, scenario):
     return ReplanningController(replan_hz=cfg.replan_hz, replan=(cond.planner == "replan"))
 
 
+def record_scenario(result: TrialResult, sc):
+    """Scenario covariates every trial row carries (also dap.policy_eval)."""
+    motion = sc.partner
+    result.scenario_attempts = sc.attempts
+    result.target_peak_speed = sc.target_peak_speed
+    result.partner_peak_speed = motion.peak_speed
+    result.partner_speed_at_meet = motion.speed_at_meet
+    result.t_meet_true = motion.t_meet
+    result.reachable_in_time = bool(sc.reachable_in_time)
+    result.partner_joint_speed_ratio = sc.partner_joint_speed_ratio
+    for k in ("distance", "lateral", "yaw_deg", "height"):
+        setattr(result, f"layout_{k}", getattr(sc.layout, k))
+
+
+def score_log(result: TrialResult, log: TrialLog, motion, tolerances, v_max, live_event):
+    """Score a ground-truth log into `result` (dap.scoring.evaluate) and
+    check that the live event rule and the offline scorer agree."""
+    for key, val in evaluate(log.arrays(), motion.t_meet, tolerances, v_max).items():
+        setattr(result, key, val)
+    if result.outcome != (live_event or "timeout"):
+        raise RuntimeError(f"live event {live_event!r} != scored outcome {result.outcome!r}")
+
+
 def horizon_steps(t_end, t_extra, dt):
     """Number of control steps in a trial (and an RL episode): the last
     sample is at horizon_steps * dt >= t_end + t_extra."""
@@ -84,15 +107,7 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
 
     sc = sample_scenario(rngs["scenario"], SCENARIO_PRESETS[cfg.scenario], camera=camera)
     scene, motion = sc.scene, sc.partner
-    result.scenario_attempts = sc.attempts
-    result.target_peak_speed = sc.target_peak_speed
-    result.partner_peak_speed = motion.peak_speed
-    result.partner_speed_at_meet = motion.speed_at_meet
-    result.t_meet_true = motion.t_meet
-    result.reachable_in_time = bool(sc.reachable_in_time)
-    result.partner_joint_speed_ratio = sc.partner_joint_speed_ratio
-    for k in ("distance", "lateral", "yaw_deg", "height"):
-        setattr(result, f"layout_{k}", getattr(sc.layout, k))
+    record_scenario(result, sc)
 
     # Stand-in for the camera pipeline (docs/perception_pipeline.md).
     sensor = NoisyPoseSensor(motion, rngs["sensor"], NOISE_POS * cond.noise_scale,
@@ -145,10 +160,7 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
         result.n_bad_commands += int(not ok)
         event = record((k + 1) * cfg.dt)
 
-    for key, val in evaluate(log.arrays(), motion.t_meet, cfg.tolerances, v_max).items():
-        setattr(result, key, val)
-    if result.outcome != (event or "timeout"):  # the live and offline rules must agree
-        raise RuntimeError(f"live event {event!r} != scored outcome {result.outcome!r}")
+    score_log(result, log, motion, cfg.tolerances, v_max, event)
     result.n_steps = len(step_ms)
     if step_ms:
         result.step_ms_mean = float(np.mean(step_ms))

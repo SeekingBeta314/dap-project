@@ -264,6 +264,17 @@ class Scene:
             )
         return ctx, self.plant.GetMyMutableContextFromRoot(ctx)
 
+    def scratch_context(self, filter_hands=False):
+        """Like `new_context`, but one cached context per `filter_hands` value,
+        reused across calls. For IK and feasibility solves only: each solve
+        overwrites every position in it, so reuse does not change results,
+        and it saves building a diagram context (a few ms, most of a reset)
+        per solve. Never the context the scene measures with."""
+        cache = self.__dict__.setdefault("_scratch", {})
+        if filter_hands not in cache:
+            cache[filter_hands] = self.new_context(filter_hands)
+        return cache[filter_hands]
+
     # -- queries ----------------------------------------------------------
     def palm_pose(self, name=OURS):
         return self.plant.CalcRelativeTransform(

@@ -117,6 +117,12 @@ class PalmPathReference:
                  peak_speed, bulge, approach_len, overshoot, switch=None):
         """`switch` = (delta (3,), start, duration), start and duration as
         fractions of t_meet, or None."""
+        # Constructor arguments, so dap.bank can save and rebuild the path.
+        self.args = dict(p_start=np.asarray(p_start, float).copy(), X_meet=X_meet,
+                         R_start=R_start, peak_speed=float(peak_speed),
+                         bulge=np.asarray(bulge, float).copy(),
+                         approach_len=float(approach_len), overshoot=float(overshoot),
+                         switch=switch)
         self.X_meet = X_meet
         p_meet = X_meet.translation()
         n = X_meet.rotation().matrix()[:, 2]  # partner palm normal: points at us
@@ -332,8 +338,7 @@ def _try_partner_motion(scene: Scene, X_meet, rng, peak_speed, cfg: PathConfig, 
         Q.append(q_k)
         q_prev = q_k
     Q = np.array(Q)
-    q_traj = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(
-        times, Q.T, np.zeros(7), np.zeros(7))
+    q_traj = joint_spline(times, Q)
     # The spline must respect the partner's own joint position and velocity
     # limits everywhere (not only at the knots): the partner is a real iiwa.
     # Checked on a 2 ms grid (5x finer than the ground-truth samples) so
@@ -361,7 +366,16 @@ def _try_partner_motion(scene: Scene, X_meet, rng, peak_speed, cfg: PathConfig, 
                 return None, "partner_collision"
     finally:
         scene.set_q(q_saved)
-    return PartnerMotion(scene, q_traj, ref, cfg.dense_dt, peak_speed), None
+    motion = PartnerMotion(scene, q_traj, ref, cfg.dense_dt, peak_speed)
+    motion.knots = (times, Q)  # what the spline was built from (dap.bank)
+    return motion, None
+
+
+def joint_spline(times, Q):
+    """The partner's joint trajectory through IK knots `Q` (n, 7) at `times`:
+    a C2 cubic spline starting and ending at rest."""
+    return PiecewisePolynomial.CubicWithContinuousSecondDerivatives(
+        times, np.asarray(Q).T, np.zeros(7), np.zeros(7))
 
 
 class NoisyPoseSensor:

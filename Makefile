@@ -9,7 +9,7 @@ SCENARIO ?= nominal
 # Anaconda's 3.11). Prefer 3.13, then 3.12. Override with `make setup PYTHON=...`.
 PYTHON ?= $(shell command -v python3.13 || command -v python3.12 || command -v python3)
 
-.PHONY: setup test scene dry-run experiment clean-venv
+.PHONY: setup test scene dry-run experiment bank clean-venv
 
 setup: $(PY)
 
@@ -32,6 +32,12 @@ dry-run: $(PY)
 
 experiment: $(PY)
 	$(PY) scripts/run_experiment.py $(CONFIG)
+
+N ?= 20000
+WORKERS ?= 8
+
+bank: $(PY)
+	$(PY) scripts/build_bank.py --n $(N) --preset $(SCENARIO) --workers $(WORKERS)
 
 clean-venv:
 	rm -rf .venv

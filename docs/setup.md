@@ -484,9 +484,15 @@ and 212 px wide (**E**).
   optimistically good. That is why steps 4–5 persist across frames.
 - **Unverified:** D435 hardware latency; D4 subpixel bit depth.
 
-## 8. RL environment (`dap/envs/`)
+## 8. RL environment (`dap/envs/`, `dap/bank.py`, `dap/policy_eval.py`)
 
-`gymnasium.make("dap/PalmMeet-v0", obs_mode="state" | "state+depth", scenario="nominal", ...)`
+`gymnasium.make("dap/PalmMeet-v0", obs_mode="pixels" | "privileged" | "state" | "state+depth", bank=..., ...)`
+
+The project's method is an end-to-end policy acting from head-camera depth.
+The env is built so that such a policy can only see what the robot itself
+could: its own arm state and depth frames. Ground truth exists for training
+(a privileged teacher or critic) and for scoring, never as the deployed
+policy's input.
 
 - **Base class:** a plain `gymnasium.Env`, not `pydrake.gym.DrakeGymEnv`.
   - `DrakeGymEnv` wraps a Simulator-driven Diagram with an action input
@@ -503,15 +509,31 @@ and 212 px wide (**E**).
   `limit_command` (no teleporting); non-finite actions count as 0 and are
   counted in `info["n_bad_actions"]`. Symmetric [-1, 1] actions are what
   Gymnasium's checker expects (**V**).
-- **Observation:** a `Dict`.
-  - `state`: a float32 vector of 37 values (`STATE_LAYOUT`): q, q̇,
-    our palm position and normal, the KF estimate of the partner palm's
-    position, velocity and normal, t, and the previous action. All bounds are
-    finite.
-  - `depth` (in `state+depth` mode): (1, H, W) float32 metres, 0 meaning
-    invalid. It comes from the head camera at `camera_scale` (default 0.25,
-    giving 212×120), with `depth_noise` (default `med`) and one frame of
-    latency.
+- **Observation modes** (all `Dict`s, float32, finite bounds):
+
+  | `obs_mode` | Keys | Partner information | Use |
+  | --- | --- | --- | --- |
+  | `pixels` | `proprio` (31), `depth` (3, H, W) | only what the camera sees | the end-to-end policy (student) |
+  | `privileged` | `state` (43) | true palm pose and velocity | teacher or critic, training only |
+  | `state` | `state` (37) | stand-in sensor's Kalman estimate | modular variant |
+  | `state+depth` | `state` (37), `depth` (1, H, W) | both of the above | legacy |
+
+  - `proprio` (`PROPRIO_LAYOUT`): q, q̇, our palm position, normal and
+    finger direction (forward kinematics of q), t, and the previous action.
+    It contains nothing about the partner (tested).
+  - `privileged` (`PRIVILEGED_LAYOUT`) = `proprio` + the partner palm face's
+    true position, velocity, normal and finger direction. The same vector
+    is in every step's `info["privileged"]`, so distillation can label
+    pixel-mode rollouts with the teacher's input.
+  - `depth`: metres, 0 = no return, from the head camera at `camera_scale`
+    (default 0.25, giving 212×120) with `depth_noise` (default `med`) and
+    one frame of latency. In `pixels` mode it is a stack of the
+    `frame_stack` most recently delivered frames, oldest first, zeros before
+    the first delivery. Frames are distinct 30 Hz captures, so the stack
+    spans 67 ms at the default of 3. **Ours**: one frame has no velocity,
+    and stacking recent frames is standard in pixel RL; DrQ-v2's code
+    release stacks 3 (`frame_stack: 3`, facebookresearch/drqv2
+    `cfgs/config.yaml`, **V**).
   - Float metres follows Isaac Lab; ManiSkill uses uint16 millimetres
     (**V**). Stable-Baselines3 only treats uint8 images as images, so a
     float depth observation needs `normalize_images=False` and a custom CNN
@@ -521,24 +543,55 @@ and 212 px wide (**E**).
   episode ends where the same motion would end a trial (tested).
   - `terminated` at the first contact or collision.
   - `truncated` at the horizon (1 s after the partner's motion ends).
-- **Partner speed** is drawn per episode, as in the trials (section 4).
-- **Paired evaluation:** `env.reset(options={"trial_seed": s})` replays
-  experiment seed `s` (its scenario and sensor-noise stream), so a policy
-  can be scored on exactly the seeds the planners use.
+- **Where scenarios come from:**
+  - **Training: a scenario bank** (`dap/bank.py`,
+    `scripts/build_bank.py`). Sampling a scenario is hundreds of IK solves
+    (about 1 s on average with the camera, several seconds for fast
+    partners), which made resets most of an episode's cost. A bank stores
+    each sampled scenario's layout, path parameters and IK knots; a reset
+    rebuilds the scene and the partner's spline from them in tens of ms.
+    Rebuilt scenarios are identical to the sampled ones (tested).
+  - **Training seeds never overlap evaluation seeds.** Banks are sampled
+    from `dap.experiment.train_rngs` (entropy `[seed, k, TRAIN_TAG]`);
+    experiments use `trial_rngs` (`[seed, k]`).
+  - **Evaluation:** `reset(options={"trial_seed": s})` samples experiment
+    seed `s` exactly as `run_trial` does, with its stand-in-sensor and
+    depth-noise streams, bypassing any bank.
+  - Without a bank or a trial seed, a reset samples a fresh scenario from
+    `self.np_random`.
+- **Scoring a policy** (`dap/policy_eval.py`): `run_policy_trial(cfg,
+  cond, seed, policy)` runs the policy in an env with the experiment's
+  timing, tolerances and preset (checked), records the trial's ground-truth
+  log, and scores it with `dap.scoring.evaluate` and the same live/offline
+  agreement check as `run_trial`. Rows have the same fields and covariates
+  as the planners', so `scripts/analyze.py` compares them on paired seeds.
+  A constant-velocity motion scored this way gives the same row as through
+  `run_trial` (tested). A policy crash is a trial outcome, as for
+  controllers. Privileged policies are refused unless explicitly allowed (a
+  reference, not a method). From the command line:
+  `scripts/run_experiment.py <config> --policy module:function --policy-name <label>`.
 - **Reward:** `reward_fn(info) -> float`, which returns 0 when not given. No
   reward shaping yet. `info` carries ground truth: the event and success,
   the section 1a geometry (`normal_gap`, `in_plane_offset`, `rot_err_deg`,
   `angle_err_deg`, `finger_err_deg`), face-center distance, clearance,
-  palm–palm distance, arm distance, partner pose and velocity, `t_meet` and
-  the partner's peak speed. A reward built from these, or `dap_loss`
-  itself as a terminal reward, can be scored the same way as the trials.
-- **Determinism:** the scenario, sensor noise and depth noise all come from
-  `self.np_random`. `gymnasium.utils.env_checker.check_env` passes with no
-  warnings in both modes (**E**).
-- **Cost:** about 1.3 ms per policy step in state mode and about 10 ms with
-  depth at 212×120 (**E**, 5 episodes). Reset is dominated by scenario
-  sampling: median about 0.5 s in state mode (more for fast partners;
-  section 4) and about 1.1 s with the camera.
+  palm–palm distance, arm distance, partner pose and velocity, the
+  privileged vector, `t_meet`, the partner's peak speed and the scenario
+  id. Rewards are for learning only; results are always the harness scores.
+- **Determinism:** the scenario, sensor noise and depth noise come from
+  `self.np_random`, or from the trial seed's streams when one is given.
+  `gymnasium.utils.env_checker.check_env` passes with no warnings in every
+  mode (**E**).
+- **Cost** (**E**, M3 Pro, one process, 10 episodes holding still, bank of
+  40):
+
+  | Mode | Reset | Policy step | Policy steps/s per core |
+  | --- | --- | --- | --- |
+  | `pixels` (212×120) | ≈130 ms | ≈8 ms | ≈95 |
+  | `privileged` | ≈40 ms | ≈1 ms | ≈620 |
+
+  Without a bank, resets sample fresh scenarios: about 1.1 s on average
+  with the camera, up to several seconds. Building a bank takes about
+  0.25 s per scenario per worker (40 scenarios in 10 s with 8 workers).
 - **Training dependencies are not installed.** For later: stable-baselines3
   2.9.2 needs `gymnasium>=0.29.1,<2` and `torch>=2.8`; Drake's and the
   `manipulation` book's examples use SB3 PPO with `SubprocVecEnv`.
@@ -611,15 +664,20 @@ discordance rate is unknown until the planner exists.
   reason). Real human reaches are not min-jerk either (Chan et al. 2020), so
   any fixed motion model is misspecified; we accept this for now and treat
   the choice of motion model as an experimental variable for later.
-- **The stand-in sensor is idealized.** Until the perception pipeline exists
-  (`docs/perception_pipeline.md`), the controller's partner measurements
-  come from `NoisyPoseSensor`: ground-truth palm position and normal plus
+- **The stand-in sensor is idealized, and the pixel policy does not use
+  it.** `NoisyPoseSensor` gives ground-truth palm position and normal plus
   i.i.d. Gaussian noise (5 mm, 2°), at 100 Hz, with no latency, no dropouts
-  and no occlusion. The head camera, its 30 fps rate, its one-frame latency
-  and the D435-style depth noise are all implemented (sections 6–7) and
-  feed the RL env's depth observation, but nothing turns depth images into
-  palm poses yet. So results with the stand-in sensor are optimistic about
+  and no occlusion. It feeds only the `state` modes and the planner
+  interface. The end-to-end policy (`pixels` mode, section 8) sees only its
+  own arm state and the head camera's depth frames (30 fps, one frame of
+  latency, D435-style noise; sections 6–7), so the camera's limits,
+  including our own hand occluding the partner near contact, are part of
+  what it has to learn. Results from the `state` modes are optimistic about
   perception.
+- **Privileged information is for training only.** The `privileged` mode
+  and `info["privileged"]` carry ground truth for a teacher or critic. A
+  privileged policy is a reference, like the oracle; `dap.policy_eval`
+  refuses to score one unless asked to.
 - **Speed is confounded with geometry at both ends** (section 4). Success
   vs. speed is observational; if needed, adjust for layout covariates
   (`layout_*`, `reachable_in_time`, all stored per trial), e.g. by logistic
@@ -683,6 +741,9 @@ itself, except where marked.
 - Dai et al. DREDS. ECCV 2022, arXiv:2208.03792.
 - Zhuang et al. Robot Parkour Learning. CoRL 2023; code: github.com/ZiwenZhuang/parkour @ 5e1f413 (`legged_gym/legged_gym/envs/a1/a1_field_distill_config.py`).
 - Cheng et al. Extreme Parkour with legged robots. arXiv:2309.14341.
+
+**Pixel RL**
+- Yarats, Fergus, Lazaric, Pinto. Mastering visual continuous control: improved data-augmented reinforcement learning (DrQ-v2). arXiv:2107.09645, 2021; code: github.com/facebookresearch/drqv2 (`cfgs/config.yaml`: `frame_stack: 3`).
 
 **Simulation benchmarks:** ManiSkill3, robosuite, RoboCasa, LIBERO, RLBench, DROID (arXiv:2403.12945), DexYCB (arXiv:2104.04631), Habitat, Isaac Lab (github.com/isaac-sim/IsaacLab @ 892354c, `source/isaaclab_tasks/isaaclab_tasks/core/lift/lift_env_cfg.py`).
 

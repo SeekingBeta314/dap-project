@@ -4,6 +4,7 @@
     python scripts/run_experiment.py replan_vs_once --workers 4
     python scripts/run_experiment.py speed_limits --seeds 5      # quick look
     python scripts/run_experiment.py smoke --controller oracle  # scripted reference
+    python scripts/run_experiment.py replan_vs_once --policy mypkg.policies:make --policy-name student
 
 Writes results/<name>/config.json and results/<name>/trials.jsonl. Re-running
 skips trials already completed in trials.jsonl, so an interrupted sweep
@@ -34,13 +35,29 @@ def _factory(name):
             "hold": baselines.hold_factory}[name]
 
 
+def _load_policy_factory(spec):
+    """"module:function" -> function(cfg, cond) returning a policy
+    (dap.policy_eval)."""
+    import importlib
+
+    module, _, name = spec.partition(":")
+    if not name:
+        raise SystemExit(f"--policy must look like module:function, got {spec!r}")
+    return getattr(importlib.import_module(module), name)
+
+
 def _run_one(args):
     # Each trial samples its own scenario, so it builds its own scene.
-    cfg, cond, seed, controller, fail_fast = args
+    cfg, cond, seed, controller, policy_spec, fail_fast = args
     from dap.metrics import TrialResult
     from dap.trial import run_trial
 
     try:
+        if policy_spec is not None:
+            from dap.policy_eval import run_policy_trial
+
+            policy = _load_policy_factory(policy_spec)(cfg, cond)
+            return run_policy_trial(cfg, cond, seed, policy).to_dict()
         return run_trial(cfg, cond, seed, controller_factory=_factory(controller)).to_dict()
     except Exception as e:
         if fail_fast:
@@ -103,12 +120,23 @@ def main():
     ap.add_argument("--controller", default="planner", choices=["planner", "oracle", "hold"],
                     help="scripted references (dap/baselines.py) run every condition with "
                          "the same scripted controller; results go to <name>_<controller>")
+    ap.add_argument("--policy", metavar="MODULE:FUNCTION",
+                    help="evaluate a learned policy (dap/policy_eval.py) instead of a "
+                         "controller; FUNCTION(cfg, cond) returns the policy")
+    ap.add_argument("--policy-name", default="policy",
+                    help="label for the policy's rows; results go to <name>_<policy-name>")
     args = ap.parse_args()
 
     cfg = CONFIGS[args.config]
     if args.seeds is not None:
         cfg = dataclasses.replace(cfg, n_seeds=args.seeds)
-    if args.controller != "planner":
+    if args.policy is not None:
+        if args.controller != "planner":
+            raise SystemExit("--policy and --controller are exclusive")
+        _load_policy_factory(args.policy)  # fail before the sweep starts
+        cfg = dataclasses.replace(cfg, name=f"{cfg.name}_{args.policy_name}",
+                                  planners=(args.policy_name,))
+    elif args.controller != "planner":
         cfg = dataclasses.replace(cfg, name=f"{cfg.name}_{args.controller}",
                                   planners=(args.controller,))
 
@@ -129,13 +157,14 @@ def main():
     meta = {
         "config": dataclasses.asdict(cfg),
         "controller": args.controller,
+        "policy": args.policy,
         "git": _git_commit(),
         "started": datetime.now().isoformat(timespec="seconds"),
     }
     (out_dir / "config.json").write_text(json.dumps(meta, indent=2))
 
     mode = "w" if args.fresh else "a"
-    jobs = [(cfg, c, s, args.controller, args.fail_fast) for c, s in todo]
+    jobs = [(cfg, c, s, args.controller, args.policy, args.fail_fast) for c, s in todo]
     with open(trials_path, mode) as f:
         if args.workers > 1:
             with Pool(args.workers) as pool:

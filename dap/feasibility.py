@@ -92,7 +92,7 @@ def find_meeting(scene: Scene, rng, target=None, target_box=0.03,
     plant = scene.plant
     # Hand-hand pairs are excluded here: the meeting puts the hands adjacent
     # by construction; the clearance constraint is for everything else.
-    _, pc = scene.new_context(filter_hands=True)
+    _, pc = scene.scratch_context(filter_hands=True)
     F_ours, F_partner = scene.palm_frames[OURS], scene.palm_frames[PARTNER]
 
     ik = InverseKinematics(plant, pc)

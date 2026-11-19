@@ -27,7 +27,9 @@ Planned perception pipeline: [docs/perception_pipeline.md](docs/perception_pipel
 | `dap/ik.py` | Single-arm IK helper | done |
 | `dap/camera.py` | D435-like head camera (848x480, 58 deg vFOV, 30 fps) + frame-rate/latency buffer | done |
 | `dap/depth_noise.py` | D435-style depth noise (disparity noise, jitter, fixed pattern, dropout, shadow, holes) | done |
-| `dap/envs/` | Gymnasium env `dap/PalmMeet-v0` (state or state+depth obs; reward hook only) | done; no training |
+| `dap/envs/` | Gymnasium env `dap/PalmMeet-v0`: `pixels` (own arm + depth frame stack), `privileged` (training only), `state`, `state+depth`; reward hook only | done; no training |
+| `dap/bank.py` | Training scenario bank: sampled once from training seeds, rebuilt exactly in ~0.1 s | done |
+| `dap/policy_eval.py` | Scores a learned policy on experiment seeds like any trial | done |
 | `dap/estimator.py` | Constant-acceleration Kalman filter + palm-normal filter | done (first pass) |
 | `dap/meeting.py` | Meeting time + palm pose via IK sweep | TODO |
 | `dap/planner.py` | Controller contract (`ControllerModel`, `reset`/`step`); `KinematicTrajectoryOptimization` + replanning loop | contract done; planner TODO |
@@ -82,15 +84,28 @@ only has `python3`, which is your system Python and not the project's.
 
 ## RL environment
 
+The method we are building toward is an end-to-end policy that acts from the
+head camera's depth frames. In `pixels` mode the policy sees only its own arm
+state and a stack of depth frames; ground truth (`privileged` mode,
+`info["privileged"]`) is for training a teacher or critic only.
+
+```bash
+python scripts/build_bank.py --n 20000 --workers 8      # training scenarios -> banks/
+```
+
 ```python
 import gymnasium as gym
 import dap.envs                      # registers dap/PalmMeet-v0
-env = gym.make("dap/PalmMeet-v0", obs_mode="state+depth", scenario="nominal")
-obs, info = env.reset(seed=0)
+env = gym.make("dap/PalmMeet-v0", obs_mode="pixels", bank="banks/train_nominal_20000.pkl")
+obs, info = env.reset(seed=0)        # obs = {"proprio": (31,), "depth": (3, 120, 212)}
 ```
 
-No reward or training yet: pass `reward_fn=lambda info: ...`. See
-docs/setup.md section 8.
+Banks hold training scenarios (seeds disjoint from the experiments') so a
+reset takes ~0.1 s instead of ~1 s. Trained policies are scored on the
+experiment seeds by the same scorer as every controller
+(`dap/policy_eval.py`, or `scripts/run_experiment.py <config> --policy
+module:function --policy-name <label>`). No reward or training yet: pass
+`reward_fn=lambda info: ...`. See docs/setup.md section 8.
 
 ## Experiments
 
