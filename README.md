@@ -2,9 +2,19 @@
 
 6.4210 final project — Josh Nix, Oliver Wang, Samuel Zhou.
 
-Two simulated KUKA iiwa arms meet palm to palm in Drake. A learned controller watches the partner through a fixed head camera and commands our arm while the partner follows a randomized reach. The goal is a front-side touch with the fingers pointing in opposite directions. The simulator ends the trial on contact, collision, or timeout and measures alignment, timing, and relative speed from ground truth.
+## Watch two hands dap
 
-## Study
+Two KUKA iiwa arms reach with open right hands, meet palm to palm, curl into a clasp, and pull up together. They release, make fists, and come back for a knuckle bump. The close-up shows the fingers and thumbs while the inset follows both arms.
+
+![Two articulated hands performing a dap](docs/hand_dap.gif)
+
+[Full-resolution video](docs/hand_dap.mp4) · [Motion, contact checks, and human reference](docs/hand_dap.md)
+
+To render the gesture locally, run `make setup` and `make dap`. The video and GIF are written to `results/hand_dap/`.
+
+## First-contact learning study
+
+The original benchmark uses rigid palm and finger plates. A depth-conditioned controller steers one arm toward a randomized moving partner. Success requires a front-side touch with the fingers pointing in opposite directions. The simulator ends each trial at contact, collision, or timeout. The articulated demonstration above uses its own controller for the full greeting.
 
 On 150 matched held-out trials the depth policy made **43 aligned touches (28.7%)**, compared with **1 (0.7%)** for the arm-state-only policy and **33 (22.0%)** for classical replanning. All 43 depth successes occurred before the partner stopped, and 18 were within 100 ms of the intended meeting time. The depth policy collided in 86 trials. Its success-rate difference from the replanner was inconclusive.
 

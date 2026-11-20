@@ -14,6 +14,11 @@ truth, compared on paired seeds, and every simulation parameter is backed
 by a cited source or clearly marked as our own choice. `README.md` and
 `docs/setup.md` hold the details.
 
+The articulated two-hand demonstration is a separate kinematic motion in
+`dap/handshake.py` using `models/articulated_hand.sdf`. See
+`docs/hand_dap.md` for the motion reference and geometric contact checks.
+The paired learning-study results refer to the original rigid-hand model.
+
 You are an expert researcher and roboticist. Work like one: question
 assumptions, check claims against code, papers and datasheets rather than
 memory, and say plainly what is verified and what is not.

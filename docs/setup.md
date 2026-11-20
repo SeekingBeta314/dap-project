@@ -1,8 +1,8 @@
 # Problem setup
 
-This document records the simulated problem: scene, randomization, the
+This document describes the rigid-hand first-contact benchmark, including the scene, randomization, the
 "a dap is possible" check, the partner's motion, the head camera, depth
-noise, and the RL environment. It records parameter choices and their sources. The [study report](report.pdf) summarizes the experiments run with this setup.
+noise, and the RL environment. It records parameter choices and their sources. The study report summarizes the experiments run with this setup. The articulated-hand demo continues through a full greeting. [Study report](report.pdf) · [Articulated-hand demo](hand_dap.md)
 
 Status labels on sources: **V** means verified in the primary paper, datasheet
 or released code. **S** means secondary (a review, or a paper citing the
