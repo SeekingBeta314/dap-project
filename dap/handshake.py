@@ -1,9 +1,4 @@
-"""Kinematic slap, clasp, pull, release and knuckle bump by two right hands.
-
-The wrists follow authored Cartesian key poses, solved with the iiwa models.
-The fingers flex against signed-distance geometry at the clasp. This scene has
-its own arm/hand models; the first-contact study has a different state space.
-"""
+"""A single rising palm slap between two hands held in a fixed cupped pose."""
 
 import numpy as np
 from pydrake.all import (
@@ -14,14 +9,13 @@ from pydrake.all import (
     InverseKinematics,
     JacobianWrtVariable,
     MakeRenderEngineVtk,
-    PiecewisePolynomial,
     RigidTransform,
     RotationMatrix,
     Solve,
 )
 
 from dap.camera import add_head_camera
-from dap.hand_timing import reach_progress, release_progress
+from dap.hand_timing import dap_swing_progress
 from dap.scene import (
     IIWA_URL,
     OURS,
@@ -34,7 +28,16 @@ from dap.scene import (
 
 DIGITS = ("index", "middle", "ring", "little", "thumb")
 SIDES = (OURS, PARTNER)
-MEETING = np.array([0.67, 0.0, 0.58])
+MEETING = np.array([0.67, 0.0, 0.59])
+# Joint radians from the base to the tip. The ulnar digits curve more deeply,
+# leaving a hollow between the palm, the gently bent fingers, and the open thumb.
+CUP_ANGLES = {
+    "index": (0.19, 0.36, 0.13),
+    "middle": (0.23, 0.42, 0.16),
+    "ring": (0.28, 0.45, 0.19),
+    "little": (0.31, 0.49, 0.20),
+    "thumb": (-0.42, 0.21, 0.12),
+}
 LAYOUT = SceneLayout(distance=1.34)
 
 
@@ -44,7 +47,7 @@ def _digit_joints(digit):
 
 
 class HandshakeScene:
-    """Two articulated hands replaying a joint-limit-checked Cartesian choreography."""
+    """Two iiwa wrists swing cupped right hands together and rebound."""
 
     def __init__(self, camera=None, renderer=None):
         builder = DiagramBuilder()
@@ -124,6 +127,9 @@ class HandshakeScene:
             }
         self._prepare_motion()
         self.set_time(0.0)
+        for hand in self.hands.values():
+            for joint in self.plant.GetJointIndices(hand):
+                self.plant.get_joint(joint).Lock(self.plant_context)
 
     def query_object(self):
         return self.scene_graph.get_query_output_port().Eval(self.sg_context)
@@ -210,198 +216,127 @@ class HandshakeScene:
         return q
 
     @staticmethod
-    def _targets(values):
-        # Common grasp frame motion plus antisymmetric opening offsets. Positive
-        # pitch slopes both sets of fingertips down as in a thumb-up greeting.
-        length, side_gap, height, pitch, pull, side_shift, split_height = values
+    def _targets(pose):
+        # The finger axis rises outward from each wrist. A small backward cant
+        # puts the opposing palmar rims together with room for both sets of fingers.
+        half_x, half_y, height, rake, cant, split_z, lead = pose
         targets = []
         for sign in (1, -1):
-            a = np.deg2rad(pitch)
-            x = np.array([sign * np.cos(a), 0, -np.sin(a)])
+            a = np.deg2rad(rake)
+            x = np.array([sign * np.cos(a), 0.0, np.sin(a)])
             z = np.array([0.0, sign, 0.0])
-            R = RotationMatrix(np.column_stack([x, np.cross(z, x), z]))
-            pos = MEETING + [
-                pull - sign * length,
-                side_shift - sign * side_gap,
-                height + sign * split_height,
+            facing = RotationMatrix(np.column_stack([x, np.cross(z, x), z]))
+            # Roll the radial and ulnar pads onto the contact plane together.
+            rotation = (
+                facing
+                @ RotationMatrix.MakeYRotation(np.deg2rad(cant))
+                @ RotationMatrix.MakeXRotation(np.deg2rad(-2.96))
+            )
+            # Carry the striking wrist through a longer sweep than the receiving wrist.
+            center = MEETING + lead * np.array([-1.0, -1.0, -0.4])
+            position = center + [
+                -sign * half_x,
+                -sign * half_y,
+                height + sign * split_z,
             ]
-            targets.append(RigidTransform(R, pos))
+            targets.append(RigidTransform(rotation, position))
         return targets
 
     def _prepare_motion(self):
-        # metres and degrees. First contact is followed by a shared pull/lift,
-        # a short settle, finger extension, and distinct retreat trajectories.
-        times = np.array(
-            [
-                0.0,
-                0.92,
-                1.12,
-                1.42,
-                1.72,
-                1.94,
-                2.16,
-                2.45,
-                2.83,
-                3.23,
-                3.31,
-                3.74,
-                3.99,
-            ]
-        )
-        # Each hand's half-spacing at tangency of the two sculpted palm hulls.
-        touch = 0.011977
-        vals = np.array(
-            [
-                [0.145, 0.085, -0.067, 22.0, 0.0, 0.0, 0.0],
-                [0.022, touch, 0.0, 40.0, 0.0, 0.0, -0.007],
-                [0.022, touch, 0.0, 40.0, 0.0, 0.0, -0.007],
-                [0.022, touch, 0.047, 40.0, -0.038, 0.008, -0.007],
-                [0.022, touch, 0.029, 40.0, -0.019, 0.003, -0.007],
-                [0.022, touch, 0.029, 40.0, -0.019, 0.003, -0.007],
-                [0.049, 0.044, 0.045, 32.0, -0.012, 0.0, -0.006],
-                [0.112, 0.079, 0.005, 24.0, 0.0, 0.0, -0.002],
-                [0.125, 0.045, -0.023, 12.0, 0.0, 0.0, 0.0],
-                [0.05519, 0.010, 0.016, 10.0, 0.0, 0.0, 0.0],
-                [0.05519, 0.010, 0.016, 10.0, 0.0, 0.0, 0.0],
-                [0.135, 0.061, -0.037, 16.0, 0.0, 0.0, 0.0],
-                [0.145, 0.085, -0.067, 22.0, 0.0, 0.0, 0.0],
-            ]
-        )
-        xyz = PiecewisePolynomial.CubicShapePreserving(
-            times, vals.T, zero_end_point_derivatives=True
-        )
-        t = np.unique(
-            np.round(np.r_[times, 0.22, 0.58, np.arange(0.0, times[-1], 0.016)], 8)
-        )
-        q = self._first_pose(self._targets(vals[0]))
-        path = []
-        for ti in t:
-            if ti < 0.92:
-                u = reach_progress(ti / 0.92)
-                pose = (1 - u) * vals[0] + u * vals[1]
-                pose[2] += 0.040 * np.sin(np.pi * u)
-            elif 1.94 < ti < 2.83:
-                u = release_progress((ti - 1.94) / 0.89)
-                pose = xyz.value(1.94 + 0.89 * u).ravel()
-            else:
-                pose = xyz.value(ti).ravel()
-            q = self._track(q, self._targets(pose))
-            path.append(q)
-        path = np.array(path)
-        self.plant.SetPositions(self.plant_context, path[np.searchsorted(t, 1.12)])
-        grip = self._fit_fingers()
-        # Finger curl lags initial contact. Both hands extend before separating.
-        column = t[:, None]
-        clasp = self._smooth((column - 0.92) / 0.28) * (
-            1.0 - self._smooth((column - 1.75) / 0.19)
-        )
-        bump = self._smooth((column - 2.30) / 0.49) * (
-            1.0 - self._smooth((column - 3.40) / 0.53)
-        )
-        rest = 1.0 - self._smooth(column / 0.86) + self._smooth((column - 3.54) / 0.45)
+        # Relative wrist offsets in metres, then rake and cant in degrees, and
+        # a vertical stagger and asymmetry offset in metres.
+        ready = np.array([0.073, 0.145, -0.055, 32.0, 8.0, 0.007, 0.043])
+        strike = np.array([0.002, 0.019, 0.0, 37.0, 4.0, 0.0, 0.0])
+        finish = np.array([0.080, 0.118, -0.065, 32.0, 8.5, -0.004, 0.025])
+        q = self._first_pose(self._targets(ready))
         for side in SIDES:
             for digit, idx in self.digit_idx[side].items():
-                thumb = digit == "thumb"
-                opened = np.array([-0.60, 0.0, 0.0]) if thumb else np.zeros(3)
-                fist = np.array([0.15, 1.20, 1.02] if thumb else [1.25, 1.48, 0.91])
-                relaxed = (
-                    np.zeros(3)
-                    if thumb
-                    else (1 + DIGITS.index(digit)) * np.array([0.025, 0.039, 0.027])
-                )
-                path[:, idx] = (
-                    opened
-                    + rest * relaxed
-                    + clasp * (grip[idx] - opened)
-                    + bump * (fist - opened)
-                )
+                q[idx] = CUP_ANGLES[digit]
+
+        # Solve the normal separation from the actual pad surfaces. This also
+        # accommodates a palm described by multiple contact meshes.
+        pads = [
+            self.plant.GetCollisionGeometriesForBody(
+                self.plant.GetBodyByName("palm", self.hands[side])
+            )
+            for side in SIDES
+        ]
+        contact_q = q
+        for _ in range(8):
+            contact_q = self._track(contact_q, self._targets(strike))
+            self.set_positions(contact_q)
+            query = self.query_object()
+            gap = min(
+                query.ComputeSignedDistancePairClosestPoints(a, b).distance
+                for a in pads[0]
+                for b in pads[1]
+            )
+            if abs(gap - 0.00001) < 0.000001:
+                break
+            strike[1] += (0.00001 - gap) / 2.0
+        else:
+            raise RuntimeError("Could not resolve cupped palm contact")
+
+        onset, impact, release, end = 0.18, 0.59, 0.61, 1.12
+        times = np.unique(
+            np.round(np.r_[np.arange(0.0, end, 0.008), onset, impact, release, end], 8)
+        )
+        positions = []
+        for t in times:
+            if t < onset:
+                # The striker draws back while the receiving arm presents its palm.
+                u = t / onset
+                windup = u * u * (3.0 - 2.0 * u)
+                pose = finish + windup * (ready - finish)
+            elif t <= impact:
+                u = np.clip((t - onset) / (impact - onset), 0.0, 1.0)
+                # Reach from rest with nonzero approach speed at the clap.
+                swing = dap_swing_progress(u)
+                pose = ready + swing * (strike - ready)
+                arc = np.sin(np.pi * swing)
+                pose[2] += 0.030 * arc
+                pose[5] += 0.016 * arc
+            elif t < release:
+                pose = strike
+            else:
+                u = np.clip((t - release) / (end - release), 0.0, 1.0)
+                # Immediate rebound, followed by a soft arc back down.
+                rebound = 1.0 - (1.0 - u) ** 2
+                pose = strike + rebound * (finish - strike)
+                pose[2] += 0.030 * np.sin(np.pi * rebound)
+            q = self._track(q, self._targets(pose))
+            positions.append(q)
+        self._positions = np.array(positions)
         lo, hi = (
             self.plant.GetPositionLowerLimits(),
             self.plant.GetPositionUpperLimits(),
         )
-        if np.any(path < lo - 1e-5) or np.any(path > hi + 1e-5):
+        if np.any(self._positions < lo - 1e-5) or np.any(self._positions > hi + 1e-5):
             raise RuntimeError(
                 "The dap trajectory exceeded the model's joint position limits"
             )
-        vmax = self.plant.GetVelocityUpperLimits()
-        v = np.diff(path, axis=0) / np.diff(t)[:, None]
-        ratio = np.maximum(1.0, 1.015 * np.max(np.abs(v) / vmax, axis=1))
-        # Slow only an interval that needs time to meet a joint's speed limit.
-        # Expand that interval by one sample on either side for gentler transitions.
-        ratio = np.maximum.reduce(
-            [ratio, np.r_[ratio[:1], ratio[:-1]], np.r_[ratio[1:], ratio[-1:]]]
+        # Stretch only the intervals that need more time under the arm speed limits.
+        dt = np.diff(times)
+        velocities = np.diff(self._positions, axis=0) / dt[:, None]
+        speed_fraction = np.max(
+            abs(velocities) / self.plant.GetVelocityUpperLimits(), axis=1
         )
-        self._phase_times = t
-        self._times = np.r_[0.0, np.cumsum(np.diff(t) * ratio)]
-        self._positions = path
+        stretch = np.maximum(1.0, 1.015 * speed_fraction)
+        stretch = np.maximum.reduce(
+            [stretch, np.r_[stretch[0], stretch[:-1]], np.r_[stretch[1:], stretch[-1]]]
+        )
+        self._times = np.r_[0.0, np.cumsum(dt * stretch)]
+        self.swing_time, self.impact_time, self.release_time = np.interp(
+            [onset, impact, release], times, self._times
+        )
         self.duration = self._times[-1]
-
-    @staticmethod
-    def _smooth(x):
-        x = np.clip(x, 0, 1)
-        return x**3 * (10 + x * (-15 + 6 * x))
-
-    def _fit_fingers(self):
-        """Close until a finger meets the other hand, then flex its remaining joints."""
-        q = self.plant.GetPositions(self.plant_context).copy()
-        targets = {
-            "index": [1.0, 1.45, 0.9],
-            "middle": [1.05, 1.48, 1.0],
-            "ring": [1.12, 1.5, 1.02],
-            "little": [1.17, 1.54, 1.03],
-            "thumb": [0.68, 0.82, 0.64],
-        }
-        for side in SIDES:
-            q[self.digit_idx[side]["thumb"][0]] = -0.60
-        for side in SIDES:
-            for digit, idx in self.digit_idx[side].items():
-                opened = q[idx].copy()
-                for frac in np.linspace(0.02, 1.0, 50):
-                    trial = q.copy()
-                    trial[idx] = opened + (np.array(targets[digit]) - opened) * frac
-                    self.plant.SetPositions(self.plant_context, trial)
-                    if self._digit_clearance(side, digit) < 0.00035:
-                        break
-                    q = trial
-        # A proximal phalanx can touch first. Continue wrapping the free PIP
-        # and DIP joints so the two fingertips can reach around the grasp.
-        for side in SIDES:
-            for digit, idx in self.digit_idx[side].items():
-                middle = "proximal" if digit == "thumb" else "middle"
-                cap = [1.17, 1.12] if digit == "thumb" else [1.62, 1.25]
-                for joint, parts, limit in [
-                    (1, (middle, "distal"), cap[0]),
-                    (2, ("distal",), cap[1]),
-                ]:
-                    for angle in np.linspace(q[idx[joint]], limit, 51)[1:]:
-                        trial = q.copy()
-                        trial[idx[joint]] = angle
-                        self.plant.SetPositions(self.plant_context, trial)
-                        if self._digit_clearance(side, digit, parts) < 0.00035:
-                            break
-                        q = trial
-        self.plant.SetPositions(self.plant_context, q)
-        return q
-
-    def _digit_clearance(self, side, digit, parts=None):
-        query = self.query_object()
-        clearance = np.inf
-        for pair in query.ComputeSignedDistancePairwiseClosestPoints(0.005):
-            a, b = self.owner.get(pair.id_A), self.owner.get(pair.id_B)
-            if a and b and a[0] != b[0]:
-                body = a[1] if a[0] == side else b[1]
-                if body.startswith(digit + "_") and (
-                    parts is None or body.split("_")[1] in parts
-                ):
-                    clearance = min(clearance, pair.distance)
-        return clearance
 
     def q_at(self, t):
         t = np.clip(t, 0.0, self.duration)
         hi = min(np.searchsorted(self._times, t, side="right"), len(self._times) - 1)
         lo = hi - 1
         f = (t - self._times[lo]) / (self._times[hi] - self._times[lo])
-        return (1 - f) * self._positions[lo] + f * self._positions[hi]
+        return self._positions[lo] + f * (self._positions[hi] - self._positions[lo])
 
     def set_positions(self, q):
         self.plant.SetPositions(self.plant_context, q)
@@ -409,21 +344,11 @@ class HandshakeScene:
     def set_time(self, t):
         self.set_positions(self.q_at(t))
 
-    def time_at_phase(self, authored_time):
-        """Convert a choreography time to playback seconds after joint-speed limiting."""
-        return float(np.interp(authored_time, self._phase_times, self._times))
-
     def phase(self, t):
-        authored = np.interp(t, self._times, self._phase_times)
-        boundaries = [
-            (0.92, "Reach"),
-            (1.02, "Palm touch"),
-            (1.20, "Clasp"),
-            (1.75, "Pull"),
-            (1.94, "Open"),
-            (2.30, "Release"),
-            (2.83, "Make a fist"),
-            (3.23, "Approach for bump"),
-            (3.31, "Knuckle bump"),
-        ]
-        return next((name for end, name in boundaries if authored < end), "Recoil")
+        if t < self.swing_time:
+            return "Wind-up"
+        if t < self.impact_time:
+            return "Swing"
+        if t <= self.release_time:
+            return "Palm contact"
+        return "Rebound"

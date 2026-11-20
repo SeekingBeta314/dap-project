@@ -1,51 +1,63 @@
-"""Refit the two travel envelopes from the public Inter-X handshake preview."""
+"""Fit the normalized inward swing to OMFGrant's Contemporary Dap Up (CC0).
+
+Run without arguments to refit the published annotations. Supply the original
+GIF and --overlay to inspect the hand-marked points on the six source frames.
+"""
 
 import argparse
 import hashlib
 import sys
 from pathlib import Path
 
-import imageio_ffmpeg
 import numpy as np
-from PIL import Image
-from scipy.optimize import least_squares
+from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from dap.hand_timing import progress
+from dap.hand_timing import dap_swing_progress
 
-
-def projected_gaps(path):
-    """Smallest horizontal gap between the actors' silhouettes at arm height."""
-    frames = imageio_ffmpeg.read_frames(str(path))
-    info = next(frames)
-    gaps = []
-    for pixels in frames:
-        image = Image.frombytes("RGB", info["size"], pixels)
-        image = image.resize((468, 257), Image.Resampling.BICUBIC)
-        red, green, blue = np.asarray(image, dtype=np.int16).transpose(2, 0, 1)
-        left = (red > green + 45) & (green > blue + 10)
-        right = (blue > red + 60) & (green > red + 25)
-        gaps.append(min(np.flatnonzero(right[y])[0] - np.flatnonzero(left[y])[-1]
-                        for y in range(76, 126) if left[y].any() and right[y].any()))
-    return np.array(gaps)
+# Frame number, then an approximate palm center for each person in the
+# original 720 x 720 GIF. Origin is top left. The interval ends at first touch.
+TRACK = [
+    (20, (104, 343), (416, 330)),
+    (21, (132, 306), (415, 305)),
+    (22, (153, 290), (409, 295)),
+    (23, (189, 284), (397, 293)),
+    (24, (261, 280), (369, 294)),
+    (25, (296, 279), (346, 295)),
+]
+SOURCE_SHA256 = "003d685276f91ec19a8a004e27b95a1909482206e6b57d74d0c953f8942e6ac5"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("clip", type=Path, help="Inter-X static/videos/handshake.mp4")
+    parser.add_argument("clip", nargs="?", type=Path, help="original Contemporary_Dap_Up.gif")
+    parser.add_argument("--overlay", type=Path, help="write the marked-up frames as a contact sheet")
     args = parser.parse_args()
-    sha = hashlib.sha256(args.clip.read_bytes()).hexdigest()
-    if sha != "c6dba1217193a3a607f413abb225604e7da98ffb8a923982da4be6bb48856a82":
-        parser.error("Expected the Inter-X preview used to select these frames and colors")
-    gaps = projected_gaps(args.clip)
-    for name, start, end in (("reach", 0, 26), ("release", 91, 108)):
-        gap = gaps[start:end + 1]
-        target = (gap - gap[0]) / (gap[-1] - gap[0])
-        u = np.linspace(0, 1, len(gap))
-        fit = least_squares(lambda p: progress(u, *p) - target, [.4, .7, .45],
-                            bounds=([0, .1, 0], [1, 1, .9]))
-        rms = np.sqrt(np.mean(fit.fun**2))
-        print(f"{name}: coefficients {fit.x}, normalized RMS error {rms:.4f}")
+    if args.overlay and not args.clip:
+        parser.error("--overlay requires the original clip")
+    if args.clip:
+        if hashlib.sha256(args.clip.read_bytes()).hexdigest() != SOURCE_SHA256:
+            parser.error("expected the November 2025 720 x 720 Commons release")
+        if args.overlay:
+            sheet = Image.new("RGB", (3 * 410, 2 * 200))
+            with Image.open(args.clip) as clip:
+                for i, (frame, *points) in enumerate(TRACK):
+                    clip.seek(frame)
+                    marked = clip.convert("RGB")
+                    draw = ImageDraw.Draw(marked)
+                    for x, y in points:
+                        draw.ellipse((x-4, y-4, x+4, y+4), fill="yellow", outline="black")
+                    draw.text((53, 191), f"Frame {frame}", fill="white", stroke_width=1, stroke_fill="black")
+                    sheet.paste(marked.crop((50, 188, 460, 388)), (i % 3 * 410, i // 3 * 200))
+            sheet.save(args.overlay)
+    gap = np.array([right[0] - left[0] for _, left, right in TRACK])
+    travel = (gap[0] - gap) / (gap[0] - gap[-1])
+    # Frames in this segment are 40 ms each. Endpoints fix offset and scale.
+    u = np.linspace(0, 1, len(TRACK))
+    basis = u**2 * (1.0 - u)
+    coefficient = np.dot(basis, travel - u**2) / np.dot(basis, basis)
+    residual = dap_swing_progress(u, coefficient) - travel
+    print(f"coefficient {coefficient:.8f}, normalized RMS error {np.sqrt(np.mean(residual**2)):.4f}")
 
 
 if __name__ == "__main__":
