@@ -4,7 +4,7 @@
 
 ## Watch the cupped-hand dap
 
-Two KUKA iiwa arms swing their cupped right hands together for one palm slap and rebound. The fingers and thumbs hold the same shape from the first frame to the last. The replay shows the strike up close, the curve of the hands in profile, and both arms in motion.
+Two KUKA iiwa arms start with their cupped right hands about 66 cm apart. The striking arm sweeps outward and up, rolls its wrist into a single palm tap, then follows a lower curve back. The receiving arm follows a shorter arc. All fingers and thumbs hold their shape. The fixed camera shows the full swing, and the profile view shows the palms at contact.
 
 ![Two fixed, cupped right hands meeting once and rebounding](docs/hand_dap.gif)
 

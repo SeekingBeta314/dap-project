@@ -75,37 +75,39 @@ def camera(width, height, fov_deg):
     return ColorRenderCamera(core)
 
 
-def render_view(query, cam, eye, target):
-    view = query.RenderColorImage(cam, SceneGraph.world_frame_id(), look_at(eye, target))
+def render_view(query, cam, eye, target, up=(0, 0, 1)):
+    view = query.RenderColorImage(cam, SceneGraph.world_frame_id(), look_at(eye, target, up))
     return Image.fromarray(np.ascontiguousarray(view.data[:, :, :3]))
 
 
-def render_frame(scene, t, close_cam, profile_cam, wide_cam):
+def render_frame(scene, t, front_cam, profile_cam):
     scene.set_time(t)
     query = scene.query_object()
-    # Leave space for the striking hand's longer backswing on the left.
-    target = MEETING + [-0.036, -0.016, -0.031]
-    direction = np.array([0.48, -1.0, -0.24])
-    eye = target + 0.74 * direction / np.linalg.norm(direction)
-    close = render_view(query, close_cam, eye, target)
+    # A fixed camera and the robot bases give the winding and rising wrists a
+    # stationary frame of reference through the entire reach.
+    target = MEETING + [0.030, 0.0, -0.07]
+    front_axis = np.array([0.30, -1.0, 0.25])
+    front = render_view(query, front_cam, target + 2.05 * front_axis / np.linalg.norm(front_axis), target)
 
-    # The reverse three-quarter view exposes the hollow between the palms.
-    # Follow some of the wrist travel so both cups remain in this tighter view.
-    center = scene.palm_centers().mean(axis=0)
-    target = MEETING + 0.65 * (center - MEETING) + [-0.006, 0.0, 0.014]
-    direction = np.array([-0.14, 0.34, 1.0])
-    profile = render_view(query, profile_cam, target + 0.72 * direction / np.linalg.norm(direction), target)
-    wide = render_view(query, wide_cam, (0.82, -1.94, 1.08), (0.67, 0.0, 0.46))
+    # Widen the profile view as the hands draw apart. The quadratic blend
+    # levels off at contact so both palm rims remain easy to inspect there.
+    palms = scene.palm_centers()
+    span = np.linalg.norm(palms[0] - palms[1])
+    distance = 0.72 + 1.95 * span**2 / (span + 0.15)
+    target = palms.mean(axis=0) + [0.0, 0.0, 0.025]
+    axis = np.array([-0.14, 0.34, 1.0])
+    axis /= np.linalg.norm(axis)
+    # Match the left-to-right order of the hands in the front view.
+    front_right = np.cross(-front_axis, [0, 0, 1])
+    profile = render_view(query, profile_cam, target + distance * axis, target, np.cross(axis, front_right))
 
-    split = close.width + 4
+    split = front.width + 4
     width = split + profile.width
-    canvas = Image.new("RGB", (width, close.height + 48), (24, 37, 42))
-    canvas.paste(close)
+    canvas = Image.new("RGB", (width, front.height + 48), (24, 37, 42))
+    canvas.paste(front)
     canvas.paste(profile, (split, 0))
     ink = ImageDraw.Draw(canvas)
-    ink.rectangle((7, 7, wide.width + 10, wide.height + 10), fill=(245, 243, 236))
-    canvas.paste(wide, (9, 9))
-    height = close.height
+    height = front.height
     ink.text((20, height + 12), scene.phase(t), font=ImageFont.load_default(size=21), fill="white")
     ink.text((split + 16, height + 12), "Palm profile", font=ImageFont.load_default(size=19),
              fill=(194, 213, 216))
@@ -119,9 +121,8 @@ def export(out, fps):
     ffmpeg = get_ffmpeg_exe()
     scene = HandshakeScene(renderer=studio_lights())
     shade_hands(scene)
-    close_cam = camera(640, 492, 31)
-    profile_cam = camera(508, 492, 30)
-    wide_cam = camera(172, 97, 35)
+    front_cam = camera(704, 492, 30)
+    profile_cam = camera(444, 492, 33)
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=out) as temp:
         mp4, gif = (Path(temp) / f"hand_dap.{ext}" for ext in ("mp4", "gif"))
@@ -137,7 +138,7 @@ def export(out, fps):
             try:
                 for index in range(math.ceil((scene.duration + lead_in) * fps) + 1):
                     t = float(np.clip(index / fps - lead_in, 0, scene.duration))
-                    frame = render_frame(scene, t, close_cam, profile_cam, wide_cam)
+                    frame = render_frame(scene, t, front_cam, profile_cam)
                     encoder.stdin.write(frame.tobytes())
             finally:
                 encoder.stdin.close()
