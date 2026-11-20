@@ -9,6 +9,7 @@ __pycache__/
 results/*
 !results/.gitkeep
 *.mp4
+!docs/hand_dap.mp4
 *.mov
 
 banks/

@@ -8,12 +8,17 @@ This is an MIT 6.4210 (Robotic Manipulation) project. Two KUKA iiwa arms in
 Drake learn to "dap": our arm must meet a moving partner's palm, palm to
 palm and antiparallel, at the right place and time. The partner's speed and
 path vary from trial to trial, and our arm sees it only through a
-head-mounted depth camera. We are working toward an end-to-end policy that
-acts from those depth pixels. The aim is a setup that is realistic and
+head-mounted depth camera. The fitted policy acts from head-camera depth and its own arm state. The aim is a setup that is realistic and
 statistically sound: results are scored only from the simulator's ground
 truth, compared on paired seeds, and every simulation parameter is backed
 by a cited source or clearly marked as our own choice. `README.md` and
 `docs/setup.md` hold the details.
+
+The cupped-palm demonstration holds all finger and thumb angles fixed while
+the arms swing through a single dap. Its kinematic replay is in
+`dap/handshake.py` using `models/articulated_hand.sdf`. See
+`docs/hand_dap.md` for the motion reference and geometric contact checks.
+The paired learning-study results refer to the original rigid-hand model.
 
 You are an expert researcher and roboticist. Work like one: question
 assumptions, check claims against code, papers and datasheets rather than

@@ -63,7 +63,10 @@ def load(results_dir, weights=LossWeights()):
     """Read trials.jsonl and apply the crash policy. Returns (df, crashes):
     `df` has one row per counted (condition, seed), with columns
     `controller_crash` and `loss`; `crashes` lists every crashed row."""
-    df = pd.read_json(Path(results_dir) / "trials.jsonl", lines=True)
+    path = Path(results_dir) / "trials.jsonl"
+    if not path.exists():
+        path = path.with_suffix(".jsonl.gz")
+    df = pd.read_json(path, lines=True)
     df = df.drop_duplicates(CONDITION_COLS + ["seed"], keep="last").reset_index(drop=True)
     if "error_kind" not in df:
         df["error_kind"] = ""
@@ -75,7 +78,7 @@ def load(results_dir, weights=LossWeights()):
     # Scenario crashes: drop the seed everywhere. Harness crashes: drop the row.
     bad_seeds = set(crashes.loc[crashes.error_kind == "scenario", "seed"])
     keep = ~df.seed.isin(bad_seeds) & ~(crashed & (df.error_kind == "harness"))
-    df = df[keep].copy()
+    df = df[keep].sort_values(CONDITION_COLS + ["seed"]).copy()
     df["controller_crash"] = df.error_kind == "controller"
     df["success"] = df.success.fillna(False).astype(bool) & ~df.controller_crash
     df["loss"] = dap_loss(df, weights) if len(df) else []
@@ -169,7 +172,9 @@ def by_speed(df, crashes, edges):
                 raise ValueError("trials without any partner speed")
             for i, r in enumerate(binned_rate(g.speed, g.success, e)):
                 rows.append({**dict(zip(CONDITION_COLS, key)), "kind": "trials", **r,
-                             "mean_loss": g.loss[idx == i].mean()})
+                             "mean_loss": g.loss[idx == i].mean(),
+                             "mean_vmax_frac": g.vmax_frac[idx == i].mean(),
+                             "reachable_frac": g.reachable_in_time[idx == i].mean()})
     if len(crashes):
         e = covering_edges(edges, crashes.target_peak_speed)
         for key, g in crashes.groupby(CONDITION_COLS + ["error_kind"]):

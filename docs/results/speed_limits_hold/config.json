@@ -1,0 +1,53 @@
+{
+  "config": {
+    "name": "speed_limits_hold",
+    "planners": [
+      "hold"
+    ],
+    "noise_scales": [
+      1.0
+    ],
+    "n_seeds": 300,
+    "first_seed": 0,
+    "scenario": "nominal",
+    "dt": 0.01,
+    "t_extra": 1.0,
+    "replan_hz": 10.0,
+    "tolerances": {
+      "touch_dist": 0.002,
+      "rot_tol": 15.0
+    },
+    "notes": "H2. Success / loss vs. realized partner peak speed (binned).",
+    "extra": {}
+  },
+  "controller": "hold",
+  "policy": null,
+  "git": "494de03-dirty",
+  "runtime": {
+    "python": "3.12.12",
+    "packages": {
+      "drake": "1.58.0",
+      "numpy": "2.5.5",
+      "gymnasium": "1.4.0"
+    },
+    "sha256": {
+      "dap/__init__.py": "f0011cb5618c6b5f0f47d7fd2b7bd15776ce153883342d6d7b873aedd53d55d5",
+      "dap/baselines.py": "2157fc4669428c86a8070af79a970d28d95b2edab3acf45115a66e654f0efb9c",
+      "dap/estimator.py": "c7846ed19dafd2df33c37ef0f01e5fbde3a149ac70b0d11f775bf0a271f6cd2d",
+      "dap/experiment.py": "0b7c2ea1dae2cc6767bfa1f335796fb28a10e5786f23647365fde731104320aa",
+      "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+      "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+      "dap/meeting.py": "70b1d3b35d1710c4bd778adf2c55974317052936af0bae68b3d9157656c079c3",
+      "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+      "dap/partner.py": "699c383896fad11f2eca424133f375ff73d0d5f981e2748f6dde26dfd4ef83e1",
+      "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+      "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+      "dap/scene.py": "4f018d96edc56076bba9e76d2c83b54a80656fec9b45c826e1481ccb8536881d",
+      "dap/scoring.py": "bf228fa5f88196401157e34d4eff479c29f074cc9386b0950e5cc7e652c7e681",
+      "dap/trial.py": "5f3e4228c28ebedf050a7b538662596ea664f0e7c70ebdf8cd5eed15465a1b73",
+      "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+      "scripts/run_experiment.py": "b5f6660dc2c7965c7710bb6aa7dbc63cbf236ea7af62948ec704a56ee182f3cd"
+    }
+  },
+  "started": "2026-11-19T22:53:08"
+}

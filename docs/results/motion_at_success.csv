@@ -1,0 +1,7 @@
+planner,paired_trials,aligned_touches,before_stop,at_or_after_stop,stop_in_final_sample_interval,before_stop_and_within_100ms,before_stop_and_within_200ms,all_within_100ms,all_within_200ms
+pixels,150,43,43,0,0,18,31,18,31
+proprio,150,1,1,0,0,1,1,1,1
+replan,150,33,32,1,0,12,25,12,25
+once,150,17,17,0,0,12,17,12,17
+oracle,150,142,142,0,0,142,142,142,142
+hold,150,0,0,0,0,0,0,0,0

@@ -15,6 +15,9 @@ and the sweep moves on (use --fail-fast while debugging).
 
 import argparse
 import dataclasses
+import hashlib
+import importlib.metadata
+import inspect
 import json
 import subprocess
 import sys
@@ -108,6 +111,52 @@ def _git_commit():
         return "unknown"
 
 
+def _runtime_info(controller, policy):
+    """Identify imported project code and bundled inference weights for this sweep."""
+    if policy:
+        from dap import policy_eval  # noqa: F401; load evaluator dependencies
+        factory = _load_policy_factory(policy)
+    else:
+        factory = _factory(controller)
+    paths = {"scripts/run_experiment.py": Path(__file__),
+             "models/dap_hand.sdf": ROOT / "models/dap_hand.sdf"}
+    for name, module in sys.modules.copy().items():
+        if name == "dap" or name.startswith("dap."):
+            src = getattr(module, "__file__", None)
+            if src:
+                path = Path(src).resolve()
+                paths[str(path.relative_to(ROOT))] = path
+    if policy:
+        src = inspect.getsourcefile(factory)
+        if src:
+            paths["policy_factory"] = Path(src)
+        bundled = {"dap.pixel_policy:pixel_factory": "depth.npz",
+                   "dap.pixel_policy:proprio_factory": "proprio.npz"}
+        if policy in bundled:
+            key = f"models/policies/{bundled[policy]}"
+            paths[key] = ROOT / key
+    return {
+        "python": sys.version.split()[0],
+        "packages": {name: importlib.metadata.version(name)
+                     for name in ("drake", "numpy", "gymnasium")},
+        "sha256": {k: hashlib.sha256(p.read_bytes()).hexdigest()
+                   for k, p in sorted(paths.items())},
+    }
+
+
+def _resume_metadata(previous, current):
+    """Extending the seed range preserves provenance of surviving trials."""
+    old_cfg, new_cfg = dict(previous["config"]), dict(current["config"])
+    old_n, new_n = old_cfg.pop("n_seeds"), new_cfg.pop("n_seeds")
+    compatible = (new_n >= old_n and old_cfg == new_cfg
+                  and all(previous.get(k) == current.get(k)
+                          for k in ("runtime", "controller", "policy")))
+    if not compatible:
+        raise SystemExit("Existing results have a different or unverified run configuration. "
+                         "Use --out for a separate run or --fresh to replace the trials.")
+    return {**previous, "config": current["config"]}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("config", choices=sorted(CONFIGS))
@@ -153,15 +202,25 @@ def main():
             print("  ", cond)
         return
 
+    if not todo and done:
+        print(f"Previously completed results: {trials_path}")
+        return
+
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = {
         "config": dataclasses.asdict(cfg),
         "controller": args.controller,
         "policy": args.policy,
         "git": _git_commit(),
+        "runtime": _runtime_info(args.controller, args.policy),
         "started": datetime.now().isoformat(timespec="seconds"),
     }
-    (out_dir / "config.json").write_text(json.dumps(meta, indent=2))
+    config_path = out_dir / "config.json"
+    if done:
+        if not config_path.exists():
+            raise SystemExit("Missing run metadata. Use --out or --fresh.")
+        meta = _resume_metadata(json.loads(config_path.read_text()), json.loads(json.dumps(meta)))
+    config_path.write_text(json.dumps(meta, indent=2))
 
     mode = "w" if args.fresh else "a"
     jobs = [(cfg, c, s, args.controller, args.policy, args.fail_fast) for c, s in todo]

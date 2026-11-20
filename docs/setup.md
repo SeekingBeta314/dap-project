@@ -1,9 +1,8 @@
 # Problem setup
 
-This document records the simulated problem: scene, randomization, the
+This document describes the rigid-hand first-contact benchmark, including the scene, randomization, the
 "a dap is possible" check, the partner's motion, the head camera, depth
-noise, and the RL environment. It gives every parameter and where it comes
-from. Nothing here is final.
+noise, and the RL environment. It records parameter choices and their sources. The study report summarizes the experiments run with this setup. The cupped-hand demo shows a single palm strike and rebound. [Study report](report.pdf) · [Cupped-hand demo](hand_dap.md)
 
 Status labels on sources: **V** means verified in the primary paper, datasheet
 or released code. **S** means secondary (a review, or a paper citing the
@@ -96,7 +95,7 @@ motion plus `t_extra` = 1 s, `dap.trial.horizon_steps`) is a **timeout**.
 ## 1b. Success, scores and loss
 
 **Success = the trial ended in a contact and the palms are antiparallel:
-`rot_err ≤ 15°`** (`Tolerances.rot_tol`, a placeholder, **Ours**). Position
+`rot_err ≤ 15°`** (`Tolerances.rot_tol`, the study threshold, **Ours**). Position
 and timing are not success criteria; they are scores:
 
 | Score (at contact) | Meaning |
@@ -110,7 +109,7 @@ and timing are not success criteria; they are scores:
 | `min_arm_dist`, `vmax_frac` | closest arm–arm distance; fraction of steps with a joint at ≥ 95% of its speed limit |
 
 **Loss** (`dap_loss`, vectorized over a results table, lower is better;
-weights are placeholders in `LossWeights`, **Ours**). It is tiered, so the
+weights fixed for this study in `LossWeights`, **Ours**). It is tiered, so the
 outcomes keep a fixed order whatever the errors: every success < every
 failed contact < every miss < every collision. With
 `e = (pos_err/3 cm)² + (rot_err/15°)² + (time_err/0.1 s)²` (+ an optional
@@ -592,9 +591,7 @@ policy's input.
   Without a bank, resets sample fresh scenarios: about 1.1 s on average
   with the camera, up to several seconds. Building a bank takes about
   0.25 s per scenario per worker (40 scenarios in 10 s with 8 workers).
-- **Training dependencies are not installed.** For later: stable-baselines3
-  2.9.2 needs `gymnasium>=0.29.1,<2` and `torch>=2.8`; Drake's and the
-  `manipulation` book's examples use SB3 PPO with `SubprocVecEnv`.
+- The fitted policy uses supervised imitation. PyTorch is required for fitting. Evaluation uses NumPy. See the [policy training instructions](pixel_policy.md).
 
 ## 9. Experiments and statistics (`dap/experiment.py`, `dap/stats.py`, `scripts/analyze.py`)
 
@@ -651,8 +648,7 @@ the same seeds.
 (α = 0.05) to detect a 10-point difference in success rate when about 20% of
 seeds are discordant (Connor 1987 sample-size formula: n ≈ 155). With 300
 seeds over five 0.15 m/s bins (about 60 per bin), each bin's 95% Wilson
-interval has a half-width of at most about 0.12. These are planning numbers; the
-discordance rate is unknown until the planner exists.
+interval has a half-width of at most about 0.12. These sample-size calculations preceded the experiment. Observed discordant counts are in the [paired results](results/replan_vs_once/paired.csv).
 
 ## 10. Methodology notes
 
@@ -689,11 +685,10 @@ discordance rate is unknown until the planner exists.
 - **The oracle is a reference, not an upper bound.** It knows the scenario
   but does not avoid collisions and does not plan around its speed limits.
 
-## 11. Open decisions
+## 11. Design choices for follow-up experiments
 
 - **Loss weights and the success tolerance.** `rot_tol` (15°) and the loss
-  scales and weights (`LossWeights`) are placeholders. Because every
-  component is stored per trial, settling them later only re-scores.
+  scales and weights (`LossWeights`) were fixed at the repository defaults for the study. Stored components allow a sensitivity analysis without rerunning controllers.
 - **Camera position.** Centered behind our base gives realistic
   self-occlusion; an offset of about 0.2–0.3 m sideways would reduce it.
   Should camera position be an experimental axis?

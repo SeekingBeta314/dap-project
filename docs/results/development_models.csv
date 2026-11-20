@@ -1,0 +1,4 @@
+candidate,n,successes,contacts,collisions,timeouts,mean_loss,checkpoint_sha256,selected
+direct regression,32,3,11,20,1,15.59354407426056,eb242ba6a7ffa886b564d9dbe5e72d6c023a51cf3be196feb0db5840325e413c,False
+wrist branches,32,3,10,22,0,16.243528369496605,6af8dfe7f5e2e80ec44f90ced34ed999ed4b98307b3c89d17232943b2c1c33e0,False
+convolutional wrist branches,32,8,12,18,2,14.131198744859693,40fe64276897b3fc6cc5797389463901d1177352f42b26c298b507b4a27eef66,True
