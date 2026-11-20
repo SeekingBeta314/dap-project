@@ -2,11 +2,11 @@
 
 6.4210 final project — Josh Nix, Oliver Wang, Samuel Zhou.
 
-## Watch two hands dap
+## Watch the cupped-hand dap
 
-Two KUKA iiwa arms reach with open right hands, meet palm to palm, curl into a clasp, and pull up together. They release, make fists, and come back for a knuckle bump. The close-up shows the fingers and thumbs while the inset follows both arms.
+Two KUKA iiwa arms swing their cupped right hands together for one palm slap and rebound. The fingers and thumbs hold the same shape from the first frame to the last. The replay shows the strike up close, the curve of the hands in profile, and both arms in motion.
 
-![Two articulated hands performing a dap](docs/hand_dap.gif)
+![Two fixed, cupped right hands meeting once and rebounding](docs/hand_dap.gif)
 
 [Full-resolution video](docs/hand_dap.mp4) · [Motion, contact checks, and human reference](docs/hand_dap.md)
 
@@ -14,7 +14,7 @@ To render the gesture locally, run `make setup` and `make dap`. The video and GI
 
 ## First-contact learning study
 
-The original benchmark uses rigid palm and finger plates. A depth-conditioned controller steers one arm toward a randomized moving partner. Success requires a front-side touch with the fingers pointing in opposite directions. The simulator ends each trial at contact, collision, or timeout. The articulated demonstration above uses its own controller for the full greeting.
+The original benchmark uses rigid palm and finger plates. A depth-conditioned controller steers one arm toward a randomized moving partner. Success requires a front-side touch with the fingers pointing in opposite directions. The simulator ends each trial at contact, collision, or timeout. The cupped-palm strike shown above is a separate kinematic demonstration.
 
 On 150 matched held-out trials the depth policy made **43 aligned touches (28.7%)**, compared with **1 (0.7%)** for the arm-state-only policy and **33 (22.0%)** for classical replanning. All 43 depth successes occurred before the partner stopped, and 18 were within 100 ms of the intended meeting time. The depth policy collided in 86 trials. Its success-rate difference from the replanner was inconclusive.
 
