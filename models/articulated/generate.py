@@ -15,6 +15,25 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 SKIN = "0.71 0.44 0.31 1"
 NAIL = "0.79 0.56 0.49 1"
+# Index ranges in the 59 wrist-to-knuckle stations and 96 points per ring.
+# The upper half-ring runs from the little-finger edge (0) to the thumb edge (48).
+PALM_LENGTHS = (("heel", 0, 25), ("mid", 25, 42), ("knuckles", 42, 58))
+PALM_WIDTHS = (("hypothenar", 0, 18), ("center", 18, 30), ("thenar", 30, 48))
+
+
+def palm_sections():
+    """Split the palm loft into convex collision patches at the hollow and pads."""
+    for region, first, last in PALM_LENGTHS:
+        for pad, edge, other in PALM_WIDTHS:
+            name = f"palm_{region}_{pad}"
+            if (region, pad) == ("mid", "center"):
+                # A single convex central patch would span both sides of the
+                # cavity. Four pieces meet at its lowest point (x≈0, y=0).
+                for end, lo, hi in (("heel", first, 34), ("distal", 34, last)):
+                    for side, a, b in (("ulnar", edge, 24), ("radial", 24, other)):
+                        yield f"{name}_{end}_{side}", lo, hi, a, b
+            else:
+                yield name, first, last, edge, other
 
 
 def surface(name, rows):
@@ -79,12 +98,17 @@ def palm():
             c, s = cos(t), sin(t)
             y = (ulnar if c >= 0 else radial) * np.sign(c) * abs(c) ** 0.83
             z = height * np.sign(s) * abs(s) ** 0.72
+            # The outer metacarpals roll toward the palm when the hand is cupped.
+            # Apply the transverse arch to the back as well as the palm.
+            z += 8.0 * (y / 40) ** 2 * np.exp(-((x + 2) / 40) ** 4)
             if s > 0:
-                # Thenar and hypothenar pads, separated by the shallow palmar cup.
+                # The fleshy pads at the thumb, little finger and finger bases
+                # surround the central hollow. The heel stays full toward the wrist.
                 z += s * (
-                    4.0 * np.exp(-(((x + 20) / 22) ** 2) - ((y + 21) / 11) ** 2)
-                    + 2.0 * np.exp(-(((x + 17) / 23) ** 2) - ((y - 23) / 10) ** 2)
-                    - 1.7 * np.exp(-((x / 19) ** 2) - (y / 18) ** 2)
+                    10.0 * np.exp(-(((x + 13) / 28) ** 2) - ((y + 24) / 13) ** 2)
+                    + 7.6 * np.exp(-(((x + 8) / 32) ** 2) - ((y - 25) / 12) ** 2)
+                    + 4.8 * np.exp(-(((x - 25 + 0.12 * y) / 8) ** 2) - (y / 33) ** 4)
+                    - 7.8 * np.exp(-((x / 23) ** 2) - (y / 17) ** 2)
                 )
                 z -= (
                     0.55
@@ -105,10 +129,15 @@ def palm():
             ring.append(np.array([x, y, z]) * 0.001)
         rows.append(ring)
     surface("palm", rows)
-    # Coarse samples retain the raised pads and perimeter while keeping
-    # the convex support geometry inexpensive for repeated distance queries.
-    proxy_rows = [ring[::4] for ring in rows[:-1:3]]
-    surface("palm_proxy", proxy_rows + [rows[-1][::4]])
+    # A convex hull of the entire palm would bridge the hollow. Partition the
+    # very same skin surface in x and y before convexifying each patch in Drake.
+    # All patches extend from the palmar side to the dorsal side of the hand.
+    for name, first, last, edge, other in palm_sections():
+        stations = [*range(first, last, 2), last]
+        top = [*range(edge, other, 2), other]
+        bottom = [96 - i for i in reversed(top) if i not in (0, 48)]
+        section = [[rows[i][j] for j in top + bottom] for i in stations]
+        surface(name, section)
 
 
 def finger(name, distal=False, thumb_web=False):
@@ -279,23 +308,26 @@ def model():
     base = tag(hand, "link", name="palm")
     inertial(base, 0.27, (0.115, 0.082, 0.026))
     visual(base, "skin", "palm", (1, 1, 1), SKIN)
-    col = tag(base, "collision", name="palm_contact")
-    geo = tag(tag(col, "geometry"), "mesh")
-    tag(geo, "uri", "package://dap/articulated/palm_proxy.obj")
-    tag(geo, "drake:declare_convex")
+    for name, *_ in palm_sections():
+        col = tag(base, "collision", name=name)
+        geo = tag(tag(col, "geometry"), "mesh")
+        tag(geo, "uri", f"package://dap/articulated/{name}.obj")
+        tag(geo, "drake:declare_convex")
     wrist = tag(hand, "frame", name="wrist", attached_to="palm")
     tag(wrist, "pose", "-.061 0 0 0 1.57079632679 0", relative_to="palm")
     contact = tag(hand, "frame", name="palm_face", attached_to="palm")
-    tag(contact, "pose", "0 0 .012 0 0 0", relative_to="palm")
+    tag(contact, "pose", "0 0 .0047 0 0 0", relative_to="palm")
+    # Small roll differences aim flexion toward the transverse arch. Splay
+    # remains small so adjacent digits can form the outer lip of the cup.
     fingers = [
-        ("index", 0.038, -0.0295, -0.080, (0.043, 0.026, 0.020), 0.0093),
-        ("middle", 0.042, -0.0098, -0.020, (0.047, 0.029, 0.021), 0.0095),
-        ("ring", 0.039, 0.0107, 0.055, (0.044, 0.028, 0.020), 0.0089),
-        ("little", 0.031, 0.0295, 0.14, (0.035, 0.021, 0.017), 0.0076),
+        ("index", 0.038, -0.0295, 0.002, -0.12, -0.015, (0.043, 0.026, 0.020), 0.0093),
+        ("middle", 0.042, -0.0098, -0.001, -0.04, 0.0, (0.047, 0.029, 0.021), 0.0095),
+        ("ring", 0.039, 0.0107, 0.0, 0.07, 0.015, (0.044, 0.028, 0.020), 0.0089),
+        ("little", 0.031, 0.0295, 0.004, 0.18, 0.03, (0.035, 0.021, 0.017), 0.0076),
     ]
-    for digit, x, y, splay, lengths, r in fingers:
+    for digit, x, y, z, roll, splay, lengths, r in fingers:
         parent = "palm"
-        pose = (x, y, -0.001, 0, 0, splay)
+        pose = (x, y, z, roll, 0, splay)
         for i, (part, joint, limit) in enumerate(
             zip(
                 ("proximal", "middle", "distal"),
