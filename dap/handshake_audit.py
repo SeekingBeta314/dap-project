@@ -30,11 +30,54 @@ def _pairs(scene, labels, radius):
         yield (pair.distance, a, b)
 
 
-def _nearest_cross_pair(scene, time, labels):
+def _nearest_cross_pair(scene, time, labels, hands_only=False):
     scene.set_time(time)
-    return min(
+    pairs = (
         row for row in _pairs(scene, labels, np.inf) if (row[1][0], row[2][0]) == SIDES
     )
+    if hands_only:
+        pairs = (
+            row
+            for row in pairs
+            if not any(surface[1].startswith("iiwa_link_") for surface in row[1:])
+        )
+    return min(pairs)
+
+
+def _palm_route(points):
+    """Trace the palm-frame origin and measure its bow off the endpoint line."""
+    offsets = points - points[0]
+    chord = offsets[-1]
+    length = np.linalg.norm(chord)
+    direction = chord / length if length > 0 else np.zeros(3)
+    # A straight path that reverses along the line still has zero bow.
+    departures = offsets - np.outer(offsets @ direction, direction)
+    peak = departures[np.argmax(np.linalg.norm(departures, axis=1))]
+    return {
+        "path_length_mm": 1000 * np.linalg.norm(np.diff(points, axis=0), axis=1).sum(),
+        "chord_mm": 1000 * length,
+        "max_bow_mm": 1000 * np.linalg.norm(peak),
+        "max_bow_vector_world_xyz_mm": (1000 * peak).tolist(),
+    }
+
+
+def _palm_velocity_changes(scene):
+    """Magnitude of the change between two consecutive mean palm velocities."""
+    window = min(0.010, scene.swing_time, scene.duration - scene.release_time)
+    changes = {}
+    transitions = {
+        "swing_onset": scene.swing_time,
+        "impact": scene.impact_time,
+        "release": scene.release_time,
+    }
+    for phase, time in transitions.items():
+        positions = []
+        for t in (time - window, time, time + window):
+            scene.set_time(t)
+            positions.append(scene.palm_centers())
+        incoming, outgoing = np.diff(positions, axis=0) / window
+        changes[phase] = dict(zip(SIDES, np.linalg.norm(outgoing - incoming, axis=1)))
+    return {"window_s": window, "change_m_s": changes}
 
 
 def _contact_record(time, pair):
@@ -140,13 +183,19 @@ def audit_handshake(scene, step=SAMPLE_PERIOD_S):
     if not np.isfinite(step) or step <= 0:
         raise ValueError("step must be a positive finite number of seconds")
     times = np.unique(
-        np.r_[np.arange(0.0, scene.duration, step), scene._times, scene.impact_time]
+        np.r_[
+            np.arange(0.0, scene.duration, step),
+            scene._times,
+            scene.swing_time,
+            scene.impact_time,
+            scene.release_time,
+        ]
     )
     labels = _geometry_labels(scene)
     hand_indices = np.concatenate(
         [idx for side in SIDES for idx in scene.digit_idx[side].values()]
     )
-    hand_positions, near = [], []
+    hand_positions, palm_centers, near = [], [], []
     closest, closest_time = None, None
     # A radius-limited distance query produces a conservative clearance floor for
     # classes of geometry that never come close, and exact gaps near contact.
@@ -157,6 +206,7 @@ def audit_handshake(scene, step=SAMPLE_PERIOD_S):
         hand_positions.append(
             scene.plant.GetPositions(scene.plant_context)[hand_indices]
         )
+        palm_centers.append(scene.palm_centers())
         frame_nearest = None
         for row in _pairs(scene, labels, radius):
             d, a, b = row
@@ -197,7 +247,21 @@ def audit_handshake(scene, step=SAMPLE_PERIOD_S):
     after = _nearest_cross_pair(scene, impact + window, labels)[0]
     start = _nearest_cross_pair(scene, 0.0, labels)[0]
     end = _nearest_cross_pair(scene, scene.duration, labels)[0]
+    start_hands = _nearest_cross_pair(scene, 0.0, labels, hands_only=True)
+    velocity_changes = _palm_velocity_changes(scene)
     meeting = _nearest_cross_pair(scene, impact, labels)
+    centers = np.asarray(palm_centers)
+    contact_indices = np.searchsorted(times, [impact, scene.release_time])
+    midpoint_in, midpoint_out = centers[contact_indices].mean(axis=1)
+    spans = {
+        "start_to_impact": times <= impact,
+        "inward_swing": (times >= scene.swing_time) & (times <= impact),
+        "recovery": times >= scene.release_time,
+    }
+    palm_routes = {
+        side: {phase: _palm_route(centers[mask, i]) for phase, mask in spans.items()}
+        for i, side in enumerate(SIDES)
+    }
     speeds = np.diff(scene._positions, axis=0) / np.diff(scene._times)[:, None]
     return {
         "duration_s": scene.duration,
@@ -211,6 +275,10 @@ def audit_handshake(scene, step=SAMPLE_PERIOD_S):
         if closest
         else None,
         "start_gap_mm": 1000 * start,
+        "initial_hand_clearance": _contact_record(0.0, start_hands),
+        "palm_routes": palm_routes,
+        "palm_velocity_changes": velocity_changes,
+        "contact_midpoint_displacement_mm": 1000 * np.linalg.norm(midpoint_out - midpoint_in),
         "end_gap_mm": 1000 * end,
         "approach_rebound_window_s": window,
         "mean_closing_speed_m_s": (before - meeting[0]) / window,

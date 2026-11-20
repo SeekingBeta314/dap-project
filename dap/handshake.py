@@ -15,7 +15,7 @@ from pydrake.all import (
 )
 
 from dap.camera import add_head_camera
-from dap.hand_timing import dap_swing_progress
+from dap.hand_timing import dap_swing_bow, dap_swing_progress
 from dap.scene import (
     IIWA_URL,
     OURS,
@@ -216,10 +216,10 @@ class HandshakeScene:
         return q
 
     @staticmethod
-    def _targets(pose):
+    def _targets(pose, carry=0.0):
         # The finger axis rises outward from each wrist. A small backward cant
         # puts the opposing palmar rims together with room for both sets of fingers.
-        half_x, half_y, height, rake, cant, split_z, lead = pose
+        half_x, half_y, height, rake, cant, split_z, lead, roll = pose
         targets = []
         for sign in (1, -1):
             a = np.deg2rad(rake)
@@ -230,10 +230,14 @@ class HandshakeScene:
             rotation = (
                 facing
                 @ RotationMatrix.MakeYRotation(np.deg2rad(cant))
-                @ RotationMatrix.MakeXRotation(np.deg2rad(-2.96))
+                @ RotationMatrix.MakeXRotation(np.deg2rad(roll - 2.96))
             )
             # Carry the striking wrist through a longer sweep than the receiving wrist.
-            center = MEETING + lead * np.array([-1.0, -1.0, -0.4])
+            center = (
+                MEETING
+                + lead * np.array([-1.0, -1.0, -0.4])
+                + carry * np.array([1.0, 0.0, 0.45])
+            )
             position = center + [
                 -sign * half_x,
                 -sign * half_y,
@@ -243,15 +247,11 @@ class HandshakeScene:
         return targets
 
     def _prepare_motion(self):
-        # Relative wrist offsets in metres, then rake and cant in degrees, and
-        # a vertical stagger and asymmetry offset in metres.
-        ready = np.array([0.073, 0.145, -0.055, 32.0, 8.0, 0.007, 0.043])
-        strike = np.array([0.002, 0.019, 0.0, 37.0, 4.0, 0.0, 0.0])
-        finish = np.array([0.080, 0.118, -0.065, 32.0, 8.5, -0.004, 0.025])
-        q = self._first_pose(self._targets(ready))
-        for side in SIDES:
-            for digit, idx in self.digit_idx[side].items():
-                q[idx] = CUP_ANGLES[digit]
+        # Half-separations, height, rake/cant, vertical stagger, striking-side
+        # lead, and wrist roll. Distances are in metres and angles in degrees.
+        start = np.array([0.19, 0.34, -0.16, 24.0, 14.0, -0.014, 0.032, 8.0])
+        ready = np.array([0.20, 0.36, -0.152, 23.0, 16.0, -0.003, 0.044, 10.0])
+        strike = np.array([0.002, 0.019, 0.0, 37.0, 4.0, 0.0, 0.0, 0.0])
 
         # Solve the normal separation from the actual pad surfaces. This also
         # accommodates a palm described by multiple contact meshes.
@@ -261,7 +261,10 @@ class HandshakeScene:
             )
             for side in SIDES
         ]
-        contact_q = q
+        contact_q = self._first_pose(self._targets(strike))
+        for side in SIDES:
+            for digit, idx in self.digit_idx[side].items():
+                contact_q[idx] = CUP_ANGLES[digit]
         for _ in range(8):
             contact_q = self._track(contact_q, self._targets(strike))
             self.set_positions(contact_q)
@@ -277,36 +280,66 @@ class HandshakeScene:
         else:
             raise RuntimeError("Could not resolve cupped palm contact")
 
-        onset, impact, release, end = 0.18, 0.59, 0.61, 1.12
+        onset, impact, release, end = 0.26, 1.18, 1.192, 2.25
         times = np.unique(
             np.round(np.r_[np.arange(0.0, end, 0.008), onset, impact, release, end], 8)
         )
-        positions = []
+        targets = []
         for t in times:
             if t < onset:
                 # The striker draws back while the receiving arm presents its palm.
                 u = t / onset
                 windup = u * u * (3.0 - 2.0 * u)
-                pose = finish + windup * (ready - finish)
+                pose = start + windup * (ready - start)
+                # The wrist is already rising as it changes sweep direction.
+                pose[2] += 0.12 * onset * u * u * (u - 1.0)
             elif t <= impact:
                 u = np.clip((t - onset) / (impact - onset), 0.0, 1.0)
-                # Reach from rest with nonzero approach speed at the clap.
                 swing = dap_swing_progress(u)
                 pose = ready + swing * (strike - ready)
-                arc = np.sin(np.pi * swing)
-                pose[2] += 0.030 * arc
-                pose[5] += 0.016 * arc
+                # The filmed striker rises above the wrist-to-contact chord
+                # early. Open the arc toward each robot's outside as it rises.
+                bow = dap_swing_bow(swing)
+                pose[1] += 0.28 * bow
+                pose[2] += 0.45 * bow + 0.12 * (t - onset) * (1 - u) ** 3
+                pose[5] += 0.12 * bow
+                pose[7] += 40.0 * bow
             elif t < release:
                 pose = strike
             else:
                 u = np.clip((t - release) / (end - release), 0.0, 1.0)
-                # Immediate rebound, followed by a soft arc back down.
-                rebound = 1.0 - (1.0 - u) ** 2
-                pose = strike + rebound * (finish - strike)
-                pose[2] += 0.030 * np.sin(np.pi * rebound)
-            q = self._track(q, self._targets(pose))
-            positions.append(q)
-        self._positions = np.array(positions)
+                # The wrists peel outward before sinking into the starting pose.
+                # Both ends are at rest along the separation axis. The peak of
+                # the recoil speed is a third of the way into the recovery.
+                rebound = u * u * (6.0 + u * (-8.0 + 3.0 * u))
+                pose = strike + rebound * (start - strike)
+                arc = 4.0 * rebound * (1.0 - rebound)
+                pose[0] -= 0.035 * arc
+                pose[1] += 0.045 * arc
+                pose[2] -= 0.032 * arc
+                pose[7] -= 8.0 * arc
+            # Both palms carry on together in the tangential direction during
+            # the brief tap, then ease back into their independent arcs.
+            beat = np.clip((t - impact + 0.10) / 0.30, 0.0, 1.0)
+            carry = 0.035 * np.sin(np.pi * beat) ** 2
+            targets.append(self._targets(pose, carry))
+        # Continue out in both directions from the same contact IK solution.
+        # This keeps the two elbows on the same branches across the encounter.
+        mid = np.searchsorted(times, impact)
+        positions = np.empty((len(times), len(contact_q)))
+        positions[mid] = self._track(contact_q, targets[mid])
+        for i in range(mid - 1, -1, -1):
+            positions[i] = self._track(positions[i + 1], targets[i])
+        for i in range(mid + 1, len(times)):
+            positions[i] = self._track(positions[i - 1], targets[i])
+        # The iiwa has one redundant joint. Close the elbow posture as well as
+        # the wrist pose at the loop seam; reproject onto each wrist target.
+        elbow_drift = positions[0] - positions[-1]
+        for i in range(np.searchsorted(times, release), len(times)):
+            u = (times[i] - release) / (end - release)
+            weight = u**3 * (10.0 + u * (-15.0 + 6.0 * u))
+            positions[i] = self._track(positions[i] + weight * elbow_drift, targets[i])
+        self._positions = positions
         lo, hi = (
             self.plant.GetPositionLowerLimits(),
             self.plant.GetPositionUpperLimits(),

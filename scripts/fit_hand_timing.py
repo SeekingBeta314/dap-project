@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from dap.hand_timing import dap_swing_progress
+from dap.hand_timing import dap_swing_bow, dap_swing_progress
 
 # Frame number, then an approximate palm center for each person in the
 # original 720 x 720 GIF. Origin is top left. The interval ends at first touch.
@@ -57,7 +57,22 @@ def main():
     basis = u**2 * (1.0 - u)
     coefficient = np.dot(basis, travel - u**2) / np.dot(basis, basis)
     residual = dap_swing_progress(u, coefficient) - travel
-    print(f"coefficient {coefficient:.8f}, normalized RMS error {np.sqrt(np.mean(residual**2)):.4f}")
+    print(f"timing coefficient {coefficient:.8f}, normalized RMS error {np.sqrt(np.mean(residual**2)):.4f}")
+
+    # Work in the image plane. The striker moves to the right; flip image y
+    # to make positive offsets point above the straight line to contact.
+    points = np.array([left for _, left, _ in TRACK], dtype=float)
+    points[:, 1] *= -1
+    displacement = points - points[0]
+    chord = displacement[-1]
+    length_sq = chord @ chord
+    along = displacement @ chord / length_sq
+    above = displacement @ np.array([-chord[1], chord[0]]) / length_sq
+    basis = np.column_stack((3 * along * (1 - along)**2, 3 * along**2 * (1 - along)))
+    controls = np.linalg.lstsq(basis, above, rcond=None)[0]
+    residual = dap_swing_bow(along, controls) - above
+    print(f"striker arc controls {controls[0]:.8f} {controls[1]:.8f}, "
+          f"chord-normalized RMS error {np.sqrt(np.mean(residual**2)):.4f}")
 
 
 if __name__ == "__main__":

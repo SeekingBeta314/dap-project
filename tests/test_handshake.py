@@ -45,10 +45,29 @@ def test_single_cupped_palm_dap(replay):
             assert "mid_center" not in surface
     assert episode["first"]["time_s"] <= scene.impact_time <= episode["last_sample_s"]
     assert episode["duration_upper_bound_s"] < 0.1
-    assert report["start_gap_mm"] > 50
     assert report["end_gap_mm"] > 50
     assert report["mean_closing_speed_m_s"] > 0.1
     assert report["mean_rebound_speed_m_s"] > 0.05
+
+
+def test_long_curved_swing(replay):
+    scene, report = replay
+    assert report["initial_hand_clearance"]["gap_mm"] > 500
+    striker, receiver = (report["palm_routes"][side] for side in SIDES)
+    # Measure the inward stroke after the wind-up so drawing straight back
+    # and returning along the same line cannot produce a passing arc.
+    assert striker["inward_swing"]["max_bow_mm"] > 70
+    assert receiver["inward_swing"]["max_bow_mm"] > 25
+    assert (
+        striker["inward_swing"]["path_length_mm"]
+        > receiver["inward_swing"]["path_length_mm"]
+    )
+    assert striker["recovery"]["max_bow_mm"] > 35
+    # Both palms carry through contact together, then ease into the rebound.
+    assert report["contact_midpoint_displacement_mm"] > 2
+    assert max(report["palm_velocity_changes"]["change_m_s"]["release"].values()) < 0.25
+    # An identical wrist pose can hide an elbow jump when the animation loops.
+    np.testing.assert_allclose(scene.q_at(0), scene.q_at(scene.duration), atol=1e-7, rtol=0)
 
 
 def test_swept_clearance_and_joint_limits(replay):
