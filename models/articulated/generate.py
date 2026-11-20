@@ -265,7 +265,8 @@ def phalanx(
     axis_node = tag(joint, "axis")
     tag(axis_node, "xyz", numbers(axis))
     lim = tag(axis_node, "limit")
-    tag(lim, "lower", "0")
+    # Thumb opposition has an abducted approach pose across neutral.
+    tag(lim, "lower", "-0.70" if joint_name == "cmc" else "0")
     tag(lim, "upper", str(upper))
     tag(lim, "velocity", "8")
     tag(lim, "effort", "2")

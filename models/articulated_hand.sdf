@@ -702,7 +702,7 @@
       <axis>
         <xyz>0 -0.65 0.75993421</xyz>
         <limit>
-          <lower>0</lower>
+          <lower>-0.70</lower>
           <upper>0.95</upper>
           <velocity>8</velocity>
           <effort>2</effort>
