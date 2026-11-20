@@ -89,12 +89,12 @@ def render_frame(scene, t, front_cam, profile_cam):
     front_axis = np.array([0.30, -1.0, 0.25])
     front = render_view(query, front_cam, target + 2.05 * front_axis / np.linalg.norm(front_axis), target)
 
-    # Widen the profile view as the hands draw apart. The quadratic blend
-    # levels off at contact so both palm rims remain easy to inspect there.
-    palms = scene.palm_centers()
-    span = np.linalg.norm(palms[0] - palms[1])
-    distance = 0.72 + 1.95 * span**2 / (span + 0.15)
-    target = palms.mean(axis=0) + [0.0, 0.0, 0.025]
+    # Ease the camera inward over the swing and back out over the recovery.
+    # Its zoom speed reaches zero on both sides of the brief contact.
+    wide = np.interp(t, [scene.swing_time, scene.impact_time, scene.release_time, scene.duration],
+                     [1.0, 0.0, 0.0, 1.0])
+    distance = 0.74 + 0.49 * (1.0 - np.cos(np.pi * wide))
+    target = scene.palm_centers().mean(axis=0) + [0.0, 0.0, 0.025]
     axis = np.array([-0.14, 0.34, 1.0])
     axis /= np.linalg.norm(axis)
     # Match the left-to-right order of the hands in the front view.
