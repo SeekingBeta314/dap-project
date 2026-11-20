@@ -2,6 +2,7 @@
 # python-vs-python3 confusion. Start with `make setup`.
 
 PY := .venv/bin/python
+DEPS := .venv/.deps-installed
 SEED ?= 0
 CONFIG ?= smoke
 SCENARIO ?= nominal
@@ -11,32 +12,32 @@ PYTHON ?= $(shell command -v python3.13 || command -v python3.12 || command -v p
 
 .PHONY: setup test scene dry-run experiment bank clean-venv
 
-setup: $(PY)
+setup: $(DEPS)
 
-$(PY): requirements.txt
+$(DEPS): requirements.txt
 	@$(PYTHON) -c 'import sys; assert sys.version_info >= (3, 12), f"need Python 3.12+ for Drake, got {sys.version.split()[0]} ($(PYTHON)); try make setup PYTHON=/path/to/python3.13"'
-	$(PYTHON) -m venv .venv
+	@test -x $(PY) || $(PYTHON) -m venv .venv
 	$(PY) -m pip install --upgrade pip
 	$(PY) -m pip install -r requirements.txt
-	@touch $(PY)
+	@touch $@
 	@echo "\nDone. Try: make test   or   make scene"
 
-test: $(PY)
+test: $(DEPS)
 	$(PY) -m pytest -q
 
-scene: $(PY)
+scene: $(DEPS)
 	$(PY) scripts/show_scene.py --seed $(SEED) --scenario $(SCENARIO)
 
-dry-run: $(PY)
+dry-run: $(DEPS)
 	$(PY) scripts/run_experiment.py $(CONFIG) --dry-run
 
-experiment: $(PY)
+experiment: $(DEPS)
 	$(PY) scripts/run_experiment.py $(CONFIG)
 
 N ?= 20000
 WORKERS ?= 8
 
-bank: $(PY)
+bank: $(DEPS)
 	$(PY) scripts/build_bank.py --n $(N) --preset $(SCENARIO) --workers $(WORKERS)
 
 clean-venv:
