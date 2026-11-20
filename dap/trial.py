@@ -79,6 +79,26 @@ def score_log(result: TrialResult, log: TrialLog, motion, tolerances, v_max, liv
         raise RuntimeError(f"live event {live_event!r} != scored outcome {result.outcome!r}")
 
 
+def record_crash(result: TrialResult, what, wall0):
+    """A crash inside the controller (or policy) is a failure of the method,
+    recorded as a trial outcome with every scenario covariate kept. Call
+    from the `except` block."""
+    result.outcome, result.error_kind = "error", "controller"
+    result.error = f"{what}:\n{traceback.format_exc(limit=5)}"
+    result.wall_time_s = time.perf_counter() - wall0
+
+
+def record_timing(result: TrialResult, step_ms, wall0):
+    """Harness timing: the compute time of each controller (or policy) call,
+    and the trial's wall time."""
+    result.n_steps = len(step_ms)
+    if step_ms:
+        result.step_ms_mean = float(np.mean(step_ms))
+        result.step_ms_p95 = float(np.percentile(step_ms, 95))
+        result.step_ms_max = float(np.max(step_ms))
+    result.wall_time_s = time.perf_counter() - wall0
+
+
 def horizon_steps(t_end, t_extra, dt):
     """Number of control steps in a trial (and an RL episode): the last
     sample is at horizon_steps * dt >= t_end + t_extra."""
@@ -117,11 +137,7 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
     idx = scene.idx[OURS]
     v_max, q_lo, q_hi = scene.v_max[idx], scene.q_lower[idx], scene.q_upper[idx]
     def controller_crashed(what):
-        # A crash inside the controller is a failure of the method, recorded
-        # as a trial outcome with every scenario covariate kept.
-        result.outcome, result.error_kind = "error", "controller"
-        result.error = f"{what}:\n{traceback.format_exc(limit=5)}"
-        result.wall_time_s = time.perf_counter() - wall0
+        record_crash(result, what, wall0)
         return (result, log) if return_log else result
 
     log = TrialLog()
@@ -161,10 +177,5 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
         event = record((k + 1) * cfg.dt)
 
     score_log(result, log, motion, cfg.tolerances, v_max, event)
-    result.n_steps = len(step_ms)
-    if step_ms:
-        result.step_ms_mean = float(np.mean(step_ms))
-        result.step_ms_p95 = float(np.percentile(step_ms, 95))
-        result.step_ms_max = float(np.max(step_ms))
-    result.wall_time_s = time.perf_counter() - wall0
+    record_timing(result, step_ms, wall0)
     return (result, log) if return_log else result

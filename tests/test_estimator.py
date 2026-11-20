@@ -24,3 +24,16 @@ def test_tracks_partner_motion(scenario):
     _, _, P_near = est.predict(0.1)
     _, _, P_far = est.predict(0.5)
     assert np.trace(P_far) > np.trace(P_near)
+
+
+def test_estimates_the_palm_frame(scenario):
+    motion = scenario.partner
+    sensor = NoisyPoseSensor(motion, np.random.default_rng(1))
+    est = PalmEstimator(pos_noise=sensor.noise_pos)
+    for t in np.arange(0, 0.5 * motion.t_meet, 0.01):
+        est.update(t, *sensor.measure(t))
+    R = est.rotation()
+    assert np.allclose(R.T @ R, np.eye(3), atol=1e-9) and np.isclose(np.linalg.det(R), 1.0)
+    R_true = motion.rotation(est.t)
+    angle = np.degrees(np.arccos(np.clip((np.trace(R.T @ R_true) - 1) / 2, -1, 1)))
+    assert angle < 5.0

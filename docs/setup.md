@@ -145,6 +145,62 @@ harness around each `step` call.
 
 So the task is solvable but not trivial.
 
+**Baselines** (`dap/baselines.py`). Each answers one question about the
+pixel policy's result; all run through `run_trial` on the paired seeds
+(`run_experiment.py --controller <name>`).
+
+| Name | Sees the partner through | Question |
+| --- | --- | --- |
+| `hold` | nothing | floor |
+| `blind` | nothing: a fixed palm pose | does the task need perception at all? |
+| `servo` | the stand-in pose sensor (section 10) | what does a simple classical controller achieve? |
+| `servo_gt` | true current state | the same controller with perfect state (reference) |
+| `oracle` | the scenario, including the future meeting | knows the answer in advance (reference) |
+
+- **`servo`:** reactive differential IK (resolved-rate control with damped
+  least squares, damping 0.05, gain 10/s; **Ours**). Each step it aims our
+  palm face at the antiparallel pose of the partner palm predicted 0.1 s
+  ahead (the filter's prediction; `servo_gt` extrapolates the true state
+  the same way), feeding the partner's velocity forward. It first lines up
+  5 cm in front of the partner palm along its normal, then (latched once
+  within 2 cm and 10°) closes along the normal. Joint velocities are scaled
+  together to the limits. No collision avoidance beyond the approach along
+  the normal. The stand-in sensor reports the palm's finger direction as
+  well as its normal (same 2° noise), and the filter low-passes it.
+- **`blind`:** the same servo driving to a fixed pose and waiting. The pose
+  uses only what a controller may know without looking (the nominal
+  meeting point and the direction of the partner's base) plus the best
+  constant guess fitted on 30 training scenarios (`train_rngs`, disjoint
+  from evaluation): the mean offset of our meeting palm from the nominal
+  point and the chordal mean of its orientation, in the frame facing the
+  partner base.
+- **First look** (12 seeds per preset, **E**; a check that the baselines
+  work, not a result):
+
+  | | `nominal` | `wide` |
+  | --- | --- | --- |
+  | `blind` | 0/12 successes (5 contacts, all > 15° off; 5 collisions) | 0/12 (11 collisions) |
+  | `servo` | 12/12 | 11/12 (1 collision) |
+  | `servo_gt` | 12/12 | 12/12 |
+
+  Meeting poses vary too much to guess: over the 30 training scenarios
+  the blind prior is fitted on, our meeting palm face lies 2–14 cm from the
+  nominal point, and finger directions differ by up to 179° between
+  scenarios (**E**), against tolerances of 5 cm and 15°. So
+  the task needs perception. But with a good pose estimate, a simple
+  reactive servo nearly always daps. Two consequences, both open
+  decisions (section 11):
+  - Success does not require timing. The servo's contacts came 1.6 s early
+    to 0.6 s late against the partner's meeting time, and about a third
+    happened after the partner's palm had stopped. Timing is scored
+    (`time_err`, the loss) but not required.
+  - The stand-in sensor (no latency, no occlusion) makes the classical
+    baseline strong. The fair classical comparison for a pixel policy is
+    the servo fed by perception from the same depth frames.
+- **Not built:** a plan-once variant of the servo. Freezing the current
+  partner estimate would be a strawman; a fair one needs a predictor of
+  where the partner's reach will end.
+
 ## 2. Scene and layout randomization (`dap/scene.py`, `dap/scenario.py`)
 
 - **Robots:** two KUKA LBR iiwa 7 R800 (`iiwa7_with_box_collision.sdf` from
@@ -514,7 +570,7 @@ policy's input.
   | `obs_mode` | Keys | Partner information | Use |
   | --- | --- | --- | --- |
   | `pixels` | `proprio` (31), `depth` (3, H, W) | only what the camera sees | the end-to-end policy (student) |
-  | `privileged` | `state` (43) | true palm pose and velocity | teacher or critic, training only |
+  | `privileged` | `state` (43) | true palm pose and velocity, as of the newest delivered frame | teacher or critic, training only |
   | `state` | `state` (37) | stand-in sensor's Kalman estimate | modular variant |
   | `state+depth` | `state` (37), `depth` (1, H, W) | both of the above | legacy |
 
@@ -525,6 +581,21 @@ policy's input.
     true position, velocity, normal and finger direction. The same vector
     is in every step's `info["privileged"]`, so distillation can label
     pixel-mode rollouts with the teacher's input.
+  - **The partner part is latency-matched** (`privileged_delay=True`, the
+    default): it is the true state at the capture time of the newest depth
+    frame the `pixels` policy has received (`info["privileged_t"]`; before
+    the first delivery, the capture at t = 0). So it lags the present by
+    33–77 ms, like the student's newest frame (tested), and the privileged
+    env follows the camera's timing without rendering (its observation
+    equals the pixel env's `info["privileged"]`, tested).
+    `privileged_delay=False` gives the current state (e.g. for a critic).
+    **Ours**: a teacher acting on information the student cannot infer is
+    imitated only on average (the "imitation gap", Weihs et al. 2021). The
+    nearest precedent: Agarwal et al. (CoRL 2022) "simulate a latency of
+    40ms in both the phases of training" for their teacher–student "Noisy"
+    elevation-map baseline (Sec. 3, **V**); their main scandot teacher
+    states no latency. `info["partner_p"]`, `partner_v` and `partner_n`
+    stay current: they are ground truth for rewards, not an observation.
   - `depth`: metres, 0 = no return, from the head camera at `camera_scale`
     (default 0.25, giving 212×120) with `depth_noise` (default `med`) and
     one frame of latency. In `pixels` mode it is a stack of the
@@ -551,14 +622,17 @@ policy's input.
     each sampled scenario's layout, path parameters and IK knots; a reset
     rebuilds the scene and the partner's spline from them in tens of ms.
     Rebuilt scenarios are identical to the sampled ones (tested).
-  - **Training seeds never overlap evaluation seeds.** Banks are sampled
-    from `dap.experiment.train_rngs` (entropy `[seed, k, TRAIN_TAG]`);
-    experiments use `trial_rngs` (`[seed, k]`).
+  - **Training seeds never overlap evaluation seeds.** Banks and fresh
+    env samples come from `dap.experiment.train_rngs` (entropy
+    `[seed, k, TRAIN_TAG]`); experiments use `trial_rngs` (`[seed, k]`).
+    Sampling from `np_random` directly would not do: numpy drops trailing
+    zero words, so `default_rng([s, 0])` is `default_rng(s)`, the stream
+    `reset(seed=s)` gets (tested).
   - **Evaluation:** `reset(options={"trial_seed": s})` samples experiment
     seed `s` exactly as `run_trial` does, with its stand-in-sensor and
     depth-noise streams, bypassing any bank.
   - Without a bank or a trial seed, a reset samples a fresh scenario from
-    `self.np_random`.
+    a training stream seeded by `self.np_random`.
 - **Scoring a policy** (`dap/policy_eval.py`): `run_policy_trial(cfg,
   cond, seed, policy)` runs the policy in an env with the experiment's
   timing, tolerances and preset (checked), records the trial's ground-truth
@@ -574,9 +648,9 @@ policy's input.
   reward shaping yet. `info` carries ground truth: the event and success,
   the section 1a geometry (`normal_gap`, `in_plane_offset`, `rot_err_deg`,
   `angle_err_deg`, `finger_err_deg`), face-center distance, clearance,
-  palm–palm distance, arm distance, partner pose and velocity, the
-  privileged vector, `t_meet`, the partner's peak speed and the scenario
-  id. Rewards are for learning only; results are always the harness scores.
+  palm–palm distance, arm distance, partner pose and velocity (current), the
+  privileged vector and the time its partner part is from, `t_meet`, the
+  partner's peak speed and the scenario id. Rewards are for learning only; results are always the harness scores.
 - **Determinism:** the scenario, sensor noise and depth noise come from
   `self.np_random`, or from the trial seed's streams when one is given.
   `gymnasium.utils.env_checker.check_env` passes with no warnings in every
@@ -612,8 +686,8 @@ speed.
 | `replan_vs_once` | H1: does replanning beat planning once? | {once, replan} × noise {0.5, 1, 2} | 150 |
 | `speed_limits` | H2: how does success fall with partner speed? | replan | 300 |
 
-`run_experiment.py --controller oracle|hold` runs the scripted references on
-the same seeds.
+`run_experiment.py --controller hold|blind|servo|servo_gt|oracle` runs the
+baselines and references (section 1b) on the same seeds.
 
 **Analysis** (`scripts/analyze.py`):
 - **Success rates** with 95% Wilson score intervals (Wilson 1927;
@@ -665,8 +739,9 @@ discordance rate is unknown until the planner exists.
   any fixed motion model is misspecified; we accept this for now and treat
   the choice of motion model as an experimental variable for later.
 - **The stand-in sensor is idealized, and the pixel policy does not use
-  it.** `NoisyPoseSensor` gives ground-truth palm position and normal plus
-  i.i.d. Gaussian noise (5 mm, 2°), at 100 Hz, with no latency, no dropouts
+  it.** `NoisyPoseSensor` gives ground-truth palm position, normal and
+  finger direction plus i.i.d. Gaussian noise (5 mm, 2°), at 100 Hz, with no
+  latency, no dropouts
   and no occlusion. It feeds only the `state` modes and the planner
   interface. The end-to-end policy (`pixels` mode, section 8) sees only its
   own arm state and the head camera's depth frames (30 fps, one frame of
@@ -677,7 +752,11 @@ discordance rate is unknown until the planner exists.
 - **Privileged information is for training only.** The `privileged` mode
   and `info["privileged"]` carry ground truth for a teacher or critic. A
   privileged policy is a reference, like the oracle; `dap.policy_eval`
-  refuses to score one unless asked to.
+  refuses to score one unless asked to. Its partner state is as old as the
+  student's newest frame (section 8), so teacher vs. student measures the
+  cost of perceiving from depth, not of latency. `servo_gt` and the
+  stand-in sensor have no latency, so they are not latency-matched to the
+  teacher.
 - **Speed is confounded with geometry at both ends** (section 4). Success
   vs. speed is observational; if needed, adjust for layout covariates
   (`layout_*`, `reachable_in_time`, all stored per trial), e.g. by logistic
@@ -690,6 +769,16 @@ discordance rate is unknown until the planner exists.
   but does not avoid collisions and does not plan around its speed limits.
 
 ## 11. Open decisions
+
+- **Does a dap need timing?** Success is "the palms touch antiparallel".
+  The reactive servo meets that with contacts from 1.6 s early to 0.6 s
+  late, about a third after the partner's palm has stopped (section 1b).
+  Options: keep timing as a score only, or require contact within a window
+  around the partner's meeting time or while the partner is still moving.
+- **What makes the task hard for a good controller?** With the stand-in
+  sensor, the servo nearly always succeeds on both presets. Candidates:
+  real perception from depth (latency, occlusion near contact), faster
+  partners, mid-course switches, a timing requirement.
 
 - **Loss weights and the success tolerance.** `rot_tol` (15°) and the loss
   scales and weights (`LossWeights`) are placeholders. Because every
@@ -743,6 +832,8 @@ itself, except where marked.
 - Cheng et al. Extreme Parkour with legged robots. arXiv:2309.14341.
 
 **Pixel RL**
+- Agarwal, Kumar, Malik, Pathak. Legged locomotion in challenging terrains using egocentric vision. CoRL 2022, arXiv:2211.07638.
+- Weihs, Jain, Liu, Salvador, Lazebnik, Kembhavi, Schwing. Bridging the imitation gap by adaptive insubordination (ADVISOR). NeurIPS 2021, arXiv:2007.12173.
 - Yarats, Fergus, Lazaric, Pinto. Mastering visual continuous control: improved data-augmented reinforcement learning (DrQ-v2). arXiv:2107.09645, 2021; code: github.com/facebookresearch/drqv2 (`cfgs/config.yaml`: `frame_stack: 3`).
 
 **Simulation benchmarks:** ManiSkill3, robosuite, RoboCasa, LIBERO, RLBench, DROID (arXiv:2403.12945), DexYCB (arXiv:2104.04631), Habitat, Isaac Lab (github.com/isaac-sim/IsaacLab @ 892354c, `source/isaaclab_tasks/isaaclab_tasks/core/lift/lift_env_cfg.py`).

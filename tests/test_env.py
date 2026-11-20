@@ -110,11 +110,17 @@ def test_pixel_frame_stack_holds_the_newest_delivered_frames():
         if got is not None and (not captures or captures[-1] != got[0]):
             captures.append(got[0])
     assert len(set(captures)) >= FRAME_STACK
-    newest = env.frames.latest(env.t)[1]
+    newest = env.frames.latest(env.t)[1][0]
     assert np.array_equal(obs["depth"][-1], newest)
     assert all(obs["depth"][i].any() for i in range(FRAME_STACK))
     # Consecutive frames are different captures (the partner is moving).
     assert not np.array_equal(obs["depth"][0], obs["depth"][-1])
+
+
+def _partner_part(vec, name):
+    names = [n for n, _ in PRIVILEGED_LAYOUT]
+    off = sum(n for _, n in PRIVILEGED_LAYOUT[:names.index(name)])
+    return vec[off:off + dict(PRIVILEGED_LAYOUT)[name]]
 
 
 def test_privileged_obs_is_proprio_plus_partner_truth():
@@ -124,9 +130,51 @@ def test_privileged_obs_is_proprio_plus_partner_truth():
     s = obs["state"]
     assert s.shape == (PRIVILEGED_DIM,)
     assert np.array_equal(s, info["privileged"])
-    names = [n for n, _ in PRIVILEGED_LAYOUT]
-    off = sum(n for _, n in PRIVILEGED_LAYOUT[:names.index("partner_p")])
-    assert np.allclose(s[off:off + 3], info["partner_p"], atol=1e-6)
+    # Without the delay, the partner part is the current truth.
+    env = _check(obs_mode="privileged", privileged_delay=False)
+    env.reset(seed=2)
+    obs, _, _, _, info = env.step(np.zeros(7, np.float32))
+    assert info["privileged_t"] == info["t"]
+    assert np.allclose(_partner_part(obs["state"], "partner_p"), info["partner_p"], atol=1e-6)
+
+
+def test_privileged_partner_is_as_old_as_the_newest_frame():
+    """The teacher sees the partner as the student's newest delivered depth
+    frame saw it: the true state at that frame's capture time."""
+    env = gym.make(ENV_ID, obs_mode="pixels", camera_scale=0.125).unwrapped
+    _, info = env.reset(options={"trial_seed": 3})
+    assert info["privileged_t"] == 0.0  # nothing delivered yet: the first capture
+    period = 1.0 / env.camera_cfg.fps
+    lags = []
+    for _ in range(15):
+        _, _, _, _, info = env.step(np.zeros(7, np.float32))
+        t_c = env.frames.latest(env.t)[0]
+        assert info["privileged_t"] == t_c
+        lags.append(env.t - t_c)
+        m = env.motion
+        priv = info["privileged"]
+        assert np.allclose(_partner_part(priv, "partner_p"), m.p(t_c), atol=1e-6)
+        assert np.allclose(_partner_part(priv, "partner_v"), m.v(t_c), atol=1e-6)
+        assert np.allclose(_partner_part(priv, "partner_n"), m.rotation(t_c)[:, 2], atol=1e-6)
+        assert np.allclose(_partner_part(priv, "partner_x"), m.rotation(t_c)[:, 0], atol=1e-6)
+    # One frame of latency plus up to one frame period and one sim step.
+    assert min(lags) >= period - 1e-9
+    assert max(lags) <= 2 * period + env.sim_dt + 1e-9
+    assert np.linalg.norm(m.v(t_c)) > 0  # the partner moves, so the delay matters
+
+
+def test_privileged_mode_matches_the_pixel_env_timing():
+    """The privileged env renders nothing but uses the camera's timing, so
+    its observation equals the pixel env's privileged labels."""
+    pix = gym.make(ENV_ID, obs_mode="pixels", camera_scale=0.125).unwrapped
+    priv = gym.make(ENV_ID, obs_mode="privileged").unwrapped
+    _, info = pix.reset(options={"trial_seed": 4})
+    obs, _ = priv.reset(options={"trial_seed": 4})
+    assert np.array_equal(obs["state"], info["privileged"])
+    for _ in range(10):
+        _, _, _, _, info = pix.step(np.full(7, 0.2, np.float32))
+        obs, *_ = priv.step(np.full(7, 0.2, np.float32))
+        assert np.array_equal(obs["state"], info["privileged"])
 
 
 def test_trial_seed_replays_the_depth_noise_too():

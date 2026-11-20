@@ -379,8 +379,8 @@ def joint_spline(times, Q):
 
 
 class NoisyPoseSensor:
-    """Stand-in for the camera pipeline: noisy palm position and normal of
-    the partner (ground truth + Gaussian noise)."""
+    """Stand-in for the camera pipeline: noisy palm position, normal and
+    finger direction of the partner (ground truth + Gaussian noise)."""
 
     def __init__(self, motion: PartnerMotion, rng, noise_pos=NOISE_POS, noise_ang=NOISE_ANG):
         self.motion = motion
@@ -391,4 +391,5 @@ class NoisyPoseSensor:
     def measure(self, t):
         p = self.motion.p(t) + self.rng.normal(0, self.noise_pos, 3)
         n = self.motion.normal(t) + self.rng.normal(0, self.noise_ang, 3)
-        return p, n / np.linalg.norm(n)
+        x = self.motion.rotation(t)[:, 0] + self.rng.normal(0, self.noise_ang, 3)
+        return p, n / np.linalg.norm(n), x / np.linalg.norm(x)

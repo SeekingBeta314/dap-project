@@ -1,5 +1,5 @@
 """Kalman filter on the partner palm: constant-acceleration position model
-plus a low-pass estimate of the palm normal.
+plus low-pass estimates of the palm normal and finger direction.
 
 Known model mismatch (docs/setup.md, "Methodology notes"): the partner's
 min-jerk approach decelerates through the second half of the reach, so a
@@ -21,6 +21,7 @@ class PalmEstimator:
         self.P = None
         self.t = None
         self.normal = None
+        self.finger = None
 
     @staticmethod
     def _F(dt):
@@ -41,12 +42,13 @@ class PalmEstimator:
             [dt**3 / 6 * I, dt**2 / 2 * I, dt * I],
         ])
 
-    def update(self, t, p_meas, n_meas):
+    def update(self, t, p_meas, n_meas, x_meas):
         if self.x is None:
             self.x = np.concatenate([p_meas, np.zeros(6)])
             self.P = np.diag([self.r**2] * 3 + [1.0] * 3 + [10.0] * 3)
             self.t = t
             self.normal = n_meas
+            self.finger = x_meas
             return
         dt = t - self.t
         self.t = t
@@ -62,6 +64,15 @@ class PalmEstimator:
 
         n = (1 - self.alpha) * self.normal + self.alpha * n_meas
         self.normal = n / np.linalg.norm(n)
+        x = (1 - self.alpha) * self.finger + self.alpha * x_meas
+        self.finger = x / np.linalg.norm(x)
+
+    def rotation(self):
+        """Estimated palm frame (columns: fingers, y, normal)."""
+        z = self.normal
+        x = self.finger - (self.finger @ z) * z
+        x /= np.linalg.norm(x)
+        return np.column_stack([x, np.cross(z, x), z])
 
     def predict(self, horizon):
         """Predicted (position, velocity, position covariance) `horizon` s ahead."""

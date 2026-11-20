@@ -204,6 +204,7 @@ class Scene:
         self.q_lower = p.GetPositionLowerLimits()
         self.q_upper = p.GetPositionUpperLimits()
         self.v_max = p.GetVelocityUpperLimits()  # same indexing as q (revolute only)
+        self._scratch = {}  # scratch_context's cache
         inspector = self.scene_graph.model_inspector()
         self._owner = {}
         for name in (OURS, PARTNER):
@@ -270,10 +271,9 @@ class Scene:
         overwrites every position in it, so reuse does not change results,
         and it saves building a diagram context (a few ms, most of a reset)
         per solve. Never the context the scene measures with."""
-        cache = self.__dict__.setdefault("_scratch", {})
-        if filter_hands not in cache:
-            cache[filter_hands] = self.new_context(filter_hands)
-        return cache[filter_hands]
+        if filter_hands not in self._scratch:
+            self._scratch[filter_hands] = self.new_context(filter_hands)
+        return self._scratch[filter_hands]
 
     # -- queries ----------------------------------------------------------
     def palm_pose(self, name=OURS):

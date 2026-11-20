@@ -3,7 +3,7 @@
     python scripts/run_experiment.py smoke --dry-run
     python scripts/run_experiment.py replan_vs_once --workers 4
     python scripts/run_experiment.py speed_limits --seeds 5      # quick look
-    python scripts/run_experiment.py smoke --controller oracle  # scripted reference
+    python scripts/run_experiment.py smoke --controller servo   # a baseline (dap/baselines.py)
     python scripts/run_experiment.py replan_vs_once --policy mypkg.policies:make --policy-name student
 
 Writes results/<name>/config.json and results/<name>/trials.jsonl. Re-running
@@ -27,12 +27,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from dap.experiment import CONFIGS, Condition  # noqa: E402
 
+BASELINES = ("hold", "blind", "servo", "servo_gt", "oracle")  # dap/baselines.py
+
+
 def _factory(name):
     from dap import baselines
     from dap.trial import default_controller
 
-    return {"planner": default_controller, "oracle": baselines.oracle_factory,
-            "hold": baselines.hold_factory}[name]
+    return {"planner": default_controller, **{n: getattr(baselines, f"{n}_factory")
+                                               for n in BASELINES}}[name]
 
 
 def _load_policy_factory(spec):
@@ -117,9 +120,9 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="list trials, run nothing")
     ap.add_argument("--fail-fast", action="store_true")
     ap.add_argument("--fresh", action="store_true", help="ignore existing trials.jsonl")
-    ap.add_argument("--controller", default="planner", choices=["planner", "oracle", "hold"],
-                    help="scripted references (dap/baselines.py) run every condition with "
-                         "the same scripted controller; results go to <name>_<controller>")
+    ap.add_argument("--controller", default="planner", choices=["planner", *BASELINES],
+                    help="baselines and references (dap/baselines.py) replace the config's "
+                         "planners; results go to <name>_<controller>")
     ap.add_argument("--policy", metavar="MODULE:FUNCTION",
                     help="evaluate a learned policy (dap/policy_eval.py) instead of a "
                          "controller; FUNCTION(cfg, cond) returns the policy")
@@ -133,9 +136,13 @@ def main():
     if args.policy is not None:
         if args.controller != "planner":
             raise SystemExit("--policy and --controller are exclusive")
-        _load_policy_factory(args.policy)  # fail before the sweep starts
         cfg = dataclasses.replace(cfg, name=f"{cfg.name}_{args.policy_name}",
                                   planners=(args.policy_name,))
+        # Fail before the sweep starts, not once per trial.
+        policy = _load_policy_factory(args.policy)(cfg, next(cfg.conditions()))
+        if policy.obs_mode == "privileged":
+            raise SystemExit("a privileged policy sees ground truth: evaluate it as a reference "
+                             "with dap.policy_eval.run_policy_trial(..., allow_privileged=True)")
     elif args.controller != "planner":
         cfg = dataclasses.replace(cfg, name=f"{cfg.name}_{args.controller}",
                                   planners=(args.controller,))

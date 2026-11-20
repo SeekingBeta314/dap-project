@@ -58,6 +58,28 @@ def test_training_streams_are_not_evaluation_streams():
     assert not eval_first & train_first
 
 
+def test_fresh_env_scenarios_are_not_evaluation_scenarios():
+    # np_random(s) equals the evaluation scenario stream of seed s
+    # (default_rng([s, 0]) == default_rng(s)); the env must not sample from it.
+    import gymnasium as gym
+
+    import dap.envs  # noqa: F401
+    from dap.envs import ENV_ID
+
+    env = gym.make(ENV_ID, obs_mode="privileged").unwrapped
+    for s in range(2):
+        env.reset(seed=s)
+        ev = sample_scenario(trial_rngs(s)["scenario"], SCENARIO_PRESETS["nominal"])
+        assert not np.array_equal(env.scenario.q_ours0, ev.q_ours0)
+
+
+def test_parallel_build_matches_serial():
+    a, b = build_bank(2, "nominal", first_seed=3), build_bank(2, "nominal", first_seed=3, workers=2)
+    for x, y in zip(a["specs"], b["specs"]):
+        x, y = scenario_from_spec(x), scenario_from_spec(y)
+        _same_scenario(x, y)
+
+
 def test_bank_round_trip(tmp_path):
     bank = build_bank(3, "nominal", first_seed=5)
     assert len(bank["specs"]) == 3 and bank["failed_seeds"] == []

@@ -24,7 +24,11 @@ Design (sources in docs/setup.md, "RL environment"):
                     This is what an end-to-end pixel policy gets.
       "privileged"  {"state"}: our arm's state plus the partner palm's TRUE
                     pose and velocity (PRIVILEGED_LAYOUT). For training a
-                    teacher or a critic only; never a deployed policy.
+                    teacher or a critic only; never a deployed policy. By
+                    default (`privileged_delay=True`) the partner part is
+                    the true state when the newest delivered camera frame
+                    was captured, i.e. as old as what the pixel policy
+                    sees; `privileged_delay=False` gives the current state.
       "state"       {"state"}: our arm plus the stand-in sensor's Kalman
                     estimate of the partner palm (STATE_LAYOUT).
       "state+depth" "state" plus the newest depth frame.
@@ -36,7 +40,7 @@ Design (sources in docs/setup.md, "RL environment"):
     exactly as a trial does (evaluation, dap.policy_eval). Otherwise, with
     `bank=` (dap.bank, training seeds disjoint from evaluation) a reset
     rebuilds a random banked scenario in tens of ms; without a bank it
-    samples a fresh one (about 1 s).
+    samples a fresh one from a training stream (about 1 s).
   - Episode ends: terminated at the first contact or collision (the same
     rule as the scorer); truncated at the same horizon as a trial
     (dap.trial.horizon_steps). With `record_log=True` the env keeps the
@@ -55,7 +59,7 @@ from dap.bank import ScenarioBank
 from dap.camera import FrameBuffer, HeadCameraConfig
 from dap.depth_noise import DepthNoiseModel
 from dap.estimator import PalmEstimator
-from dap.experiment import trial_rngs
+from dap.experiment import train_rngs, trial_rngs
 from dap.partner import NOISE_ANG, NOISE_POS, NoisyPoseSensor
 from dap.scenario import SCENARIO_PRESETS, sample_scenario
 from dap.scene import OURS, Scene
@@ -122,8 +126,8 @@ class DapEnv(gym.Env):
                  control_hz=20.0, sim_dt=0.01, t_extra=1.0,
                  touch_dist=Tolerances().touch_dist, rot_tol=Tolerances().rot_tol,
                  camera: HeadCameraConfig | None = None, camera_scale=0.25, depth_noise="med",
-                 frame_stack=FRAME_STACK, bank=None, record_log=False, reward_fn=None,
-                 render_mode=None):
+                 frame_stack=FRAME_STACK, privileged_delay=True, bank=None, record_log=False,
+                 reward_fn=None, render_mode=None):
         if obs_mode not in OBS_MODES:
             raise ValueError(f"obs_mode must be one of {OBS_MODES}, got {obs_mode!r}")
         if render_mode is not None and render_mode not in self.metadata["render_modes"]:
@@ -148,6 +152,7 @@ class DapEnv(gym.Env):
         self.render_mode = render_mode
         self.depth_noise = depth_noise
         self.frame_stack = int(frame_stack)
+        self.privileged_delay = bool(privileged_delay)
         self.record_log = record_log
 
         self.uses_depth = obs_mode in ("pixels", "state+depth")
@@ -228,7 +233,11 @@ class DapEnv(gym.Env):
             sensor_rng = np.random.default_rng(rng.integers(2**63))
             self.scenario_id = ("bank", self.bank.specs[i].get("seed", i))
         else:
-            sc = sample_scenario(rng, self.scenario_cfg, camera=camera)
+            # A training stream: np_random(s) is the same stream as the
+            # evaluation scenario stream of seed s (numpy drops trailing
+            # zero words of the entropy), so it must not sample directly.
+            sc = sample_scenario(train_rngs(int(rng.integers(2**63)))["scenario"],
+                                 self.scenario_cfg, camera=camera)
             sensor_rng = np.random.default_rng(rng.integers(2**63))
             self.scenario_id = ("sampled", None)
         self.scenario = sc
@@ -260,12 +269,15 @@ class DapEnv(gym.Env):
                 if camera_rng is None:
                     camera_rng = np.random.default_rng(rng.integers(2**63))
                 self.noise.reset(camera_rng, (self.camera_cfg.height, self.camera_cfg.width))
-            self.frames = FrameBuffer(self.camera_cfg.fps, self.camera_cfg.latency_frames)
-            # Delivered frames, newest last, for the "pixels" frame stack.
-            self.stack = deque(maxlen=self.frame_stack)
-            self._last_capture = None
+        # Camera timing in every mode: each capture holds its depth frame
+        # (None when not rendered) and the partner truth it saw, which the
+        # delayed privileged vector uses.
+        self.frames = FrameBuffer(self.camera_cfg.fps, self.camera_cfg.latency_frames)
+        self.stack = deque(maxlen=self.frame_stack)  # delivered depth frames, newest last
+        self._last_capture = None
 
         self._advance_world()
+        self.first_capture = (self.t, (None, self._partner_now()))  # the capture at t = 0
         return self._obs(), self._info()
 
     def step(self, action):
@@ -305,32 +317,47 @@ class DapEnv(gym.Env):
         self.scene.set_partner(self.motion.q(self.t))
         self.scene.set_ours(self.q)
         m = self.scene.measure()
-        self.truth = m
+        self.truth, self.partner_v = m, self.motion.v(self.t)
         self.event = self.monitor.step(m["palm_p"], m["palm_R"], m["partner_p"],
                                        m["partner_R"], m["clearance"], m["palm_palm"])
         if self.log is not None:  # the same rows dap.trial.run_trial records
-            self.log.append(t=self.t, q=self.q.copy(), partner_v=self.motion.v(self.t), **m)
+            self.log.append(t=self.t, q=self.q.copy(), partner_v=self.partner_v, **m)
         if self.uses_estimator:
             self.estimator.update(self.t, *self.sensor.measure(self.t))
-        if self.uses_depth:
-            if self.frames.due(self.t):
+        if self.frames.due(self.t):
+            depth = None
+            if self.uses_depth:
                 depth = self.scene.render_depth()
                 depth = self.noise.apply(depth) if self.noise is not None else np.nan_to_num(
                     np.where(depth > self.camera_cfg.z_far, 0.0, depth), posinf=0.0)
-                self.frames.push(self.t, depth.astype(np.float32))
-            got = self.frames.latest(self.t)
-            if got is not None and got[0] != self._last_capture:
-                self._last_capture = got[0]
-                self.stack.append(got[1])
+                depth = depth.astype(np.float32)
+            self.frames.push(self.t, (depth, self._partner_now()))
+        got = self.frames.latest(self.t)
+        if self.uses_depth and got is not None and got[0] != self._last_capture:
+            self._last_capture = got[0]
+            self.stack.append(got[1][0])
+
+    def _partner_now(self):
+        """True partner palm face (position, velocity, frame) now."""
+        return self.truth["partner_p"], self.partner_v, self.truth["partner_R"]
+
+    def _partner_seen(self):
+        """(time, (p, v, R)) behind the privileged vector: the newest
+        delivered capture's partner truth (before any is delivered, the
+        capture at t = 0), or the current truth without `privileged_delay`."""
+        if not self.privileged_delay:
+            return self.t, self._partner_now()
+        t_capture, (_, partner) = self.frames.latest(self.t) or self.first_capture
+        return t_capture, partner
 
     def _parts(self):
         m = self.truth
+        _, (p, v, R) = self._partner_seen()
         return {
             "q": self.q, "qdot": self.qdot,
             "palm_p": m["palm_p"], "palm_n": m["palm_R"][:, 2], "palm_x": m["palm_R"][:, 0],
             "t": [self.t], "prev_action": self.prev_action,
-            "partner_p": m["partner_p"], "partner_v": self.motion.v(self.t),
-            "partner_n": m["partner_R"][:, 2], "partner_x": m["partner_R"][:, 0],
+            "partner_p": p, "partner_v": v, "partner_n": R[:, 2], "partner_x": R[:, 0],
         }
 
     @staticmethod
@@ -359,7 +386,7 @@ class DapEnv(gym.Env):
         if self.obs_mode == "state+depth":
             got = self.frames.latest(self.t)
             shape = (self.camera_cfg.height, self.camera_cfg.width)
-            img = got[1] if got is not None else np.zeros(shape, np.float32)
+            img = got[1][0] if got is not None else np.zeros(shape, np.float32)
             obs["depth"] = np.array(img, dtype=np.float32, copy=True)[None]
         return obs
 
@@ -384,9 +411,10 @@ class DapEnv(gym.Env):
             "palm_palm": m["palm_palm"],
             "arm_dist": m["arm_dist"],  # at this sample
             "partner_p": m["partner_p"].copy(),
-            "partner_v": self.motion.v(self.t).copy(),
+            "partner_v": self.partner_v.copy(),
             "partner_n": m["partner_R"][:, 2].copy(),
             "privileged": self._vector(self._parts(), PRIVILEGED_LAYOUT, self._privileged_box),
+            "privileged_t": float(self._partner_seen()[0]),  # when its partner part is from
             "t_meet": float(self.motion.t_meet),
             "partner_peak_speed": float(self.motion.peak_speed),
             "n_bad_actions": self.n_bad_actions,

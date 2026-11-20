@@ -22,6 +22,8 @@ built.
 
 import pickle
 import time
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
 from dataclasses import asdict
 
 import numpy as np
@@ -112,25 +114,20 @@ def build_bank(n, preset="nominal", first_seed=0, workers=1, progress=None):
     t0 = time.perf_counter()
     specs, failed = [], []
     seed = first_seed
-    if workers > 1:
-        from concurrent.futures import ProcessPoolExecutor
-
-        pool = ProcessPoolExecutor(workers)
-    try:
+    with ProcessPoolExecutor(workers) if workers > 1 else nullcontext() as pool:
         while len(specs) < n:
             batch = list(range(seed, seed + (n - len(specs))))
             seed += len(batch)
-            if workers > 1:
-                got = list(pool.map(sample_spec, batch, [preset] * len(batch), chunksize=4))
-            else:
-                got = [sample_spec(s, preset) for s in batch]
+            presets = [preset] * len(batch)
+            got = (pool.map(sample_spec, batch, presets, chunksize=4) if pool
+                   else map(sample_spec, batch, presets))
             for s, g in zip(batch, got):
-                (specs.append(g) if g is not None else failed.append(s))
+                if g is None:
+                    failed.append(s)
+                else:
+                    specs.append(g)
             if progress:
                 progress(len(specs), n)
-    finally:
-        if workers > 1:
-            pool.shutdown()
     return dict(version=BANK_VERSION, preset=preset, config=repr(SCENARIO_PRESETS[preset]),
                 first_seed=first_seed, failed_seeds=failed, specs=specs,
                 build_s=time.perf_counter() - t0)

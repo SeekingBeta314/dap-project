@@ -30,10 +30,10 @@ Planned perception pipeline: [docs/perception_pipeline.md](docs/perception_pipel
 | `dap/envs/` | Gymnasium env `dap/PalmMeet-v0`: `pixels` (own arm + depth frame stack), `privileged` (training only), `state`, `state+depth`; reward hook only | done; no training |
 | `dap/bank.py` | Training scenario bank: sampled once from training seeds, rebuilt exactly in ~0.1 s | done |
 | `dap/policy_eval.py` | Scores a learned policy on experiment seeds like any trial | done |
-| `dap/estimator.py` | Constant-acceleration Kalman filter + palm-normal filter | done (first pass) |
+| `dap/estimator.py` | Constant-acceleration Kalman filter + palm-normal and finger-direction filters | done (first pass) |
 | `dap/meeting.py` | Meeting time + palm pose via IK sweep | TODO |
 | `dap/planner.py` | Controller contract (`ControllerModel`, `reset`/`step`); `KinematicTrajectoryOptimization` + replanning loop | contract done; planner TODO |
-| `dap/baselines.py` | Scripted references: oracle (ground truth) and hold-still | done |
+| `dap/baselines.py` | Baselines: hold, blind (fixed pose), diff-IK servo on the stand-in sensor or ground truth; oracle reference | done |
 | `dap/scoring.py` | The one definition of contact, collision, success, scores and the (vectorized) loss | done |
 | `dap/metrics.py` | Per-trial result record (harness measurements only) | done |
 | `dap/stats.py` | Wilson intervals, exact McNemar, paired bootstrap, Holm | done |
@@ -87,7 +87,10 @@ only has `python3`, which is your system Python and not the project's.
 The method we are building toward is an end-to-end policy that acts from the
 head camera's depth frames. In `pixels` mode the policy sees only its own arm
 state and a stack of depth frames; ground truth (`privileged` mode,
-`info["privileged"]`) is for training a teacher or critic only.
+`info["privileged"]`) is for training a teacher or critic only. Its partner
+state is from the capture time of the student's newest frame (before the
+first frame arrives, from t = 0), so it is as old as what the student sees
+(`privileged_delay=False` for the current state).
 
 ```bash
 python scripts/build_bank.py --n 20000 --workers 8      # training scenarios -> banks/
@@ -133,7 +136,7 @@ ground-truth log; nothing the controller reports is scored.
 ```bash
 python scripts/run_experiment.py smoke --dry-run           # list conditions, run nothing
 python scripts/run_experiment.py replan_vs_once --workers 4
-python scripts/run_experiment.py smoke --controller oracle # scripted reference, same seeds
+python scripts/run_experiment.py smoke --controller servo  # a baseline, same seeds
 python scripts/analyze.py results/replan_vs_once           # summary, paired tests, by speed
 ```
 
@@ -141,8 +144,8 @@ Sweeps resume where they left off (`--fresh` to start over); crashed trials
 are logged with their traceback in `error` and counted by the analysis
 (`--fail-fast` to stop instead). The trial loop calls
 `ReplanningController.reset/step` in `dap/planner.py`, so the planner configs
-don't run end to end until that's implemented; `--controller oracle|hold`
-runs the scripted references now. The success tolerance and loss weights
+don't run end to end until that's implemented; `--controller
+hold|blind|servo|servo_gt|oracle` runs the baselines now. The success tolerance and loss weights
 are placeholders until we settle them.
 
 ## Working together
