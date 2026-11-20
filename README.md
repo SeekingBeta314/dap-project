@@ -95,6 +95,19 @@ python scripts/analyze.py results/replan_vs_once           # summary, paired tes
 
 Sweeps resume completed trials. Exceptions are recorded with their traceback and counted according to the [crash policy](docs/setup.md). The study uses the repository's 15° orientation tolerance. Timing is a separate continuous score.
 
+To rerun the six study sweeps from the frozen checkpoints in an activated environment:
+
+```bash
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+python scripts/run_experiment.py replan_vs_once --workers 8
+python scripts/run_experiment.py speed_limits --workers 8
+python scripts/run_experiment.py speed_limits --controller oracle --workers 8
+python scripts/run_experiment.py speed_limits --controller hold --workers 8
+python scripts/run_experiment.py speed_limits --seeds 150 --policy dap.pixel_policy:pixel_factory --policy-name pixels --workers 8
+python scripts/run_experiment.py speed_limits --seeds 150 --policy dap.pixel_policy:proprio_factory --policy-name proprio --workers 8
+python scripts/publish_study.py --runs results --out results/rebuilt --policies speed_limits_pixels speed_limits_proprio
+```
+
 To regenerate analysis tables and plots from the archived raw measurements:
 
 ```bash
