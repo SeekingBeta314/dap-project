@@ -146,7 +146,7 @@ are logged with their traceback in `error` and counted by the analysis
 (`--fail-fast` to stop instead). The trial loop calls
 `ReplanningController.reset/step` in `dap/planner.py`, so the planner configs
 don't run end to end until that's implemented; `--controller
-hold|blind|servo|servo_gt|oracle` runs the baselines now. The success tolerance and loss weights
+hold|blind|servo|servo_depth|servo_gt|oracle` runs the baselines now. The success tolerance and loss weights
 are placeholders until we settle them.
 
 ## Working together

@@ -734,7 +734,7 @@ speed.
 | `replan_vs_once` | H1: does replanning beat planning once? | {once, replan} × noise {0.5, 1, 2} | 150 |
 | `speed_limits` | H2: how does success fall with partner speed? | replan | 300 |
 
-`run_experiment.py --controller hold|blind|servo|servo_gt|oracle` runs the
+`run_experiment.py --controller hold|blind|servo|servo_depth|servo_gt|oracle` runs the
 baselines and references (section 1b) on the same seeds.
 
 **Analysis** (`scripts/analyze.py`):
