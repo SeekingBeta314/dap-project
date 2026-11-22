@@ -154,6 +154,7 @@ pixel policy's result; all run through `run_trial` on the paired seeds
 | `hold` | nothing | floor |
 | `blind` | nothing: a fixed palm pose | does the task need perception at all? |
 | `servo` | the stand-in pose sensor (section 10) | what does a simple classical controller achieve? |
+| `servo_depth` | the head camera's depth frames, the student's input | the same controller with real perception |
 | `servo_gt` | true current state | the same controller with perfect state (reference) |
 | `oracle` | the scenario, including the future meeting | knows the answer in advance (reference) |
 
@@ -167,6 +168,37 @@ pixel policy's result; all run through `run_trial` on the paired seeds
   together to the limits. No collision avoidance beyond the approach along
   the normal. The stand-in sensor reports the palm's finger direction as
   well as its normal (same 2° noise), and the filter low-passes it.
+- **`servo_depth`:** the same servo on the partner palm perceived from
+  the frames the pixel policy sees (212×120, 30 fps, one frame late,
+  `med` depth noise, the trial's camera stream; `run_trial(camera=...)`
+  renders them exactly as the env does). Perception (`dap/perception.py`)
+  uses no labels:
+  - Segmentation: render the depth of what our robot knows (floor,
+    pedestals, our own arm at its joint angles at capture) and keep pixels
+    more than 3 cm + 3% of depth in front of it (**Ours**), within the
+    partner arm's reach of its shoulder (1.1 m, **E** from the iiwa model).
+  - Hand: points within 15 cm of the filter's predicted plate middle, or,
+    before the first fix and after 0.5 s without one (a fresh filter), of
+    the partner point farthest from its shoulder.
+  - Plate fit: RANSAC (Fischler & Bolles 1981) with the MSAC score (Torr &
+    Zisserman 2000), inlier band 2σ of the D435 axial noise (section 7), at
+    least 1 cm. Normal toward the camera; finger axis = the plate's long
+    axis, signed away from the partner's arm (the arm holds the 18 cm plate
+    5 cm from its wrist end).
+  - Accepted only if the fit spans the plate (5–95% extents within 20% of
+    0.9 × 18 × 12 cm; partial views bias the plate's middle) and its
+    normal is within 30° of the filter's while tracking (**Ours**), or
+    within 70° of the horizontal direction to our base when acquiring (the
+    facing cone plus the start tilt, sections 3–4; measured max 46° nominal,
+    55° wide, **E**). While tracking, the finger sign stays continuous
+    unless two fixes in a row disagree (**Ours**).
+  - The fixes update the same filter as `servo` at their capture times
+    (measurement std 1 cm, **Ours**; normal and finger smoothing at the
+    stand-in filter's time constant). Without fixes the servo predicts at
+    most 0.1 s past the last one and then holds (**Ours**): extrapolating
+    the constant-acceleration filter through a blackout runs away.
+  - What it may know: the camera's configuration and where the partner
+    stands (as `blind`), nothing about the partner's motion.
 - **`blind`:** the same servo driving to a fixed pose and waiting. The pose
   uses only what a controller may know without looking (the nominal
   meeting point and the direction of the partner's base) plus the best
@@ -181,6 +213,7 @@ pixel policy's result; all run through `run_trial` on the paired seeds
   | --- | --- | --- |
   | `blind` | 0/12 successes (5 contacts, all > 15° off; 5 collisions) | 0/12 (11 collisions) |
   | `servo` | 12/12 | 11/12 (1 collision) |
+  | `servo_depth` | 3/12 (8 collisions, 1 timeout) | 2/12 (7 collisions, 3 timeouts) |
   | `servo_gt` | 12/12 | 12/12 |
 
   Meeting poses vary too much to guess: over the 30 training scenarios
@@ -195,8 +228,23 @@ pixel policy's result; all run through `run_trial` on the paired seeds
     happened after the partner's palm had stopped. Timing is scored
     (`time_err`, the loss) but not required.
   - The stand-in sensor (no latency, no occlusion) makes the classical
-    baseline strong. The fair classical comparison for a pixel policy is
-    the servo fed by perception from the same depth frames.
+    baseline strong. On the student's depth frames the same servo mostly
+    collides hand on hand. Camera timing and visibility are not the cause:
+    fed the true palm pose at the camera's capture times (one frame late,
+    same 0.1 s coast), it daps 12/12 and 10/12, and 11/12 and 10/12 when
+    given it only on frames where at least 15 partner points lie within
+    10 cm of the palm (**E**, scratch diagnostic on the same seeds). The gap is the
+    perception. On the frames of 16 `servo` trials on training scenarios,
+    65% of frames give a fix; of the fixes, 84% have the palm normal within
+    15° (median 3.2°), 69% the position within 5 cm (median 1.9 cm), and
+    15% the finger direction flipped. In 2 of the 16 trials the hand is
+    mostly hidden at the start and the tracker locks onto a plate-sized
+    patch of the partner's arm (**E**).
+  - Its design choices were first explored on evaluation seeds 0–15 (a
+    mistake) and then re-checked on training scenarios
+    (`dap.experiment.train_rngs`), where the final choices were made. The
+    first-look row above uses evaluation seeds 0–11, so it is not a clean
+    held-out estimate; experiment seeds beyond 15 are untouched.
 - **Not built:** a plan-once variant of the servo. Freezing the current
   partner estimate would be a strawman; a fair one needs a predictor of
   where the partner's reach will end.
@@ -447,7 +495,7 @@ The camera is fixed relative to our base.
 | Clipping | 0.01–10 m | Drake default near (**V**); `manipulation` repo far (**V**) |
 | Mount | (−0.4, 0, 1.45) m in our base frame, looking at (0.7, 0, 0.6), so pitched about 38° down | RoboCasa cameras sit 0.5–0.6 m behind the base, 0.95–1.15 m up, pitched 26–35° down (**V**, recomputed from its camera quaternions). Fetch's head camera is 1.06–1.45 m above its base link, torso down to up (**E**, forward kinematics of the Fetch URDF). For scale, overall robot heights: HSR 1.005–1.35 m (**V**), TIAGo about 1.1–1.45 m (**S**). Those are robot heights, not camera heights |
 | Latency | 1 frame (33 ms) | **Ours**. Extreme Parkour uses a fixed 80 ms (**V**); Robot Parkour uses U[0.2, 0.26] s (**V**). HandoverSim notes that its timings leave out perception latency (**V**) |
-| Segmentation | Drake label image (label = body index) | Ground truth. This is a known simplification; see `docs/perception_pipeline.md` |
+| Segmentation | none for the pixel policy; `servo_depth` segments geometrically (`docs/perception_pipeline.md`) | The Drake label image (label = body index) is ground truth, used only by tests |
 
 **Other benchmarks, for comparison** (all **V**):
 
@@ -742,8 +790,9 @@ discordance rate is unknown until the planner exists.
   it.** `NoisyPoseSensor` gives ground-truth palm position, normal and
   finger direction plus i.i.d. Gaussian noise (5 mm, 2°), at 100 Hz, with no
   latency, no dropouts
-  and no occlusion. It feeds only the `state` modes and the planner
-  interface. The end-to-end policy (`pixels` mode, section 8) sees only its
+  and no occlusion. It feeds only the `state` modes, the planner
+  interface and `servo` (`servo_depth` perceives from depth instead). The
+  end-to-end policy (`pixels` mode, section 8) sees only its
   own arm state and the head camera's depth frames (30 fps, one frame of
   latency, D435-style noise; sections 6–7), so the camera's limits,
   including our own hand occluding the partner near contact, are part of
@@ -776,9 +825,10 @@ discordance rate is unknown until the planner exists.
   Options: keep timing as a score only, or require contact within a window
   around the partner's meeting time or while the partner is still moving.
 - **What makes the task hard for a good controller?** With the stand-in
-  sensor, the servo nearly always succeeds on both presets. Candidates:
-  real perception from depth (latency, occlusion near contact), faster
-  partners, mid-course switches, a timing requirement.
+  sensor, the servo nearly always succeeds on both presets; with
+  perception from the student's depth frames it rarely does (section 1b).
+  Other candidates: faster partners, mid-course switches, a timing
+  requirement.
 
 - **Loss weights and the success tolerance.** `rot_tol` (15°) and the loss
   scales and weights (`LossWeights`) are placeholders. Because every
@@ -786,7 +836,8 @@ discordance rate is unknown until the planner exists.
 - **Camera position.** Centered behind our base gives realistic
   self-occlusion; an offset of about 0.2–0.3 m sideways would reduce it.
   Should camera position be an experimental axis?
-- **Segmentation.** Ground-truth labels vs. colour or geometric segmentation.
+- **Segmentation.** `servo_depth` segments geometrically (no labels); the
+  pixel policy gets no segmentation at all.
 - **Meeting type.** Only the opposed-parallel dap so far. The facing cone
   (45°) and the free rotation about the palm normal are the knobs for adding
   more.
@@ -819,6 +870,10 @@ itself, except where marked.
 - Chao et al. HandoverSim. ICRA 2022, arXiv:2205.09747.
 - Wang et al. GenH2R. CVPR 2024, arXiv:2401.00929.
 - Christen et al. Learning human-to-robot handovers from point clouds. CVPR 2023, arXiv:2303.17592.
+
+**Perception**
+- Fischler, Bolles. Random sample consensus: a paradigm for model fitting with applications to image analysis and automated cartography. Commun. ACM 24(6):381–395, 1981.
+- Torr, Zisserman. MLESAC: a new robust estimator with application to estimating image geometry. Comput. Vis. Image Underst. 78(1):138–156, 2000.
 
 **Depth sensing and noise**
 - Intel RealSense D400 Series Datasheet (Mar 2026); Intel, "Tuning depth cameras for best performance" (web whitepaper, accessed Nov 2026).

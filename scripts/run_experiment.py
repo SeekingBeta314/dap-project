@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from dap.experiment import CONFIGS, Condition  # noqa: E402
 
-BASELINES = ("hold", "blind", "servo", "servo_gt", "oracle")  # dap/baselines.py
+BASELINES = ("hold", "blind", "servo", "servo_depth", "servo_gt", "oracle")  # dap/baselines.py
 
 
 def _factory(name):
@@ -61,7 +61,11 @@ def _run_one(args):
 
             policy = _load_policy_factory(policy_spec)(cfg, cond)
             return run_policy_trial(cfg, cond, seed, policy).to_dict()
-        return run_trial(cfg, cond, seed, controller_factory=_factory(controller)).to_dict()
+        from dap.baselines import SERVO_DEPTH_CAMERA
+
+        camera = SERVO_DEPTH_CAMERA if controller == "servo_depth" else None
+        return run_trial(cfg, cond, seed, camera=camera,
+                         controller_factory=_factory(controller)).to_dict()
     except Exception as e:
         if fail_fast:
             raise

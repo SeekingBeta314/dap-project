@@ -4,14 +4,14 @@
 
 Two simulated iiwa arms face each other in Drake, in a layout randomized per
 trial. The partner arm's hand approaches along a randomized, human-like path;
-our arm sees it through a head-mounted RGB-D camera (perception pipeline
-still to come; a noisy pose sensor stands in for it) and has to meet it palm
-to palm: palms parallel with fingers opposite. The task is purely kinematic:
+our arm sees it through a head-mounted depth camera (the pixel policy learns
+from its frames; a noisy pose sensor stands in for perception in the `state`
+modes and the `servo` baseline) and has to meet it palm to palm: palms parallel with fingers opposite. The task is purely kinematic:
 rigid hands, no clasp, and the trial ends at the touch. Each scenario draws
 its own partner speed (peak palm speed 0.15–0.9 m/s).
 
 **Problem setup, every parameter and its source:** [docs/setup.md](docs/setup.md).
-Planned perception pipeline: [docs/perception_pipeline.md](docs/perception_pipeline.md).
+Perception pipeline (the `servo_depth` baseline): [docs/perception_pipeline.md](docs/perception_pipeline.md).
 
 **Proposal (living draft):** https://claude.ai/artifact/QUBj973spHWSZKigTEf1Cz
 
@@ -33,7 +33,8 @@ Planned perception pipeline: [docs/perception_pipeline.md](docs/perception_pipel
 | `dap/estimator.py` | Constant-acceleration Kalman filter + palm-normal and finger-direction filters | done (first pass) |
 | `dap/meeting.py` | Meeting time + palm pose via IK sweep | TODO |
 | `dap/planner.py` | Controller contract (`ControllerModel`, `reset`/`step`); `KinematicTrajectoryOptimization` + replanning loop | contract done; planner TODO |
-| `dap/baselines.py` | Baselines: hold, blind (fixed pose), diff-IK servo on the stand-in sensor or ground truth; oracle reference | done |
+| `dap/baselines.py` | Baselines: hold, blind (fixed pose), diff-IK servo on the stand-in sensor, on depth perception or on ground truth; oracle reference | done |
+| `dap/perception.py` | Label-free partner-palm perception from head-camera depth (for `servo_depth`) | done |
 | `dap/scoring.py` | The one definition of contact, collision, success, scores and the (vectorized) loss | done |
 | `dap/metrics.py` | Per-trial result record (harness measurements only) | done |
 | `dap/stats.py` | Wilson intervals, exact McNemar, paired bootstrap, Holm | done |
@@ -43,7 +44,7 @@ Planned perception pipeline: [docs/perception_pipeline.md](docs/perception_pipel
 | `scripts/run_experiment.py` | Run a config, append to `results/<name>/trials.jsonl` | done |
 | `scripts/analyze.py` | Paired analysis: rates with Wilson CIs, McNemar, paired bootstrap of the loss, success vs. partner speed | done |
 | `tests/` | Scene, camera, depth noise, feasibility, scenario, scoring, stats, trial harness, env (gymnasium `check_env`) | passing |
-| `docs/` | Setup (with sources), the planned perception pipeline, and a record of edits made to the report (`report_fixes.md`) | |
+| `docs/` | Setup (with sources), the perception pipeline, and a record of edits made to the report (`report_fixes.md`) | |
 | `notebooks/` | Scratch notebooks (clear outputs before committing) | |
 | `results/` | Experiment outputs (git-ignored) | |
 

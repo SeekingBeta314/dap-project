@@ -75,6 +75,12 @@ def _trials():
                                    return_log=True)
                 out[f"trial/{preset}/{name}/{s}/row"] = digest(r.to_dict())
                 out[f"trial/{preset}/{name}/{s}/log"] = digest(log.arrays())
+    cfg = ExperimentConfig(name="r")
+    for s in (0, 1):  # the depth servo, on the head camera's frames
+        r, log = run_trial(cfg, Condition("servo_depth", 1.0), s, camera=baselines.SERVO_DEPTH_CAMERA,
+                           controller_factory=baselines.servo_depth_factory, return_log=True)
+        out[f"trial/nominal/servo_depth/{s}/row"] = digest(r.to_dict())
+        out[f"trial/nominal/servo_depth/{s}/log"] = digest(log.arrays())
     return out
 
 

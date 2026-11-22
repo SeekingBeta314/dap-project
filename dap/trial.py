@@ -2,7 +2,9 @@
 
 The loop is kinematic and causal. At each step k (time t = k dt):
   1. the controller sees our measured joint positions q(t) and the partner
-     estimate (stand-in sensor at time t) and returns a command for t + dt;
+     estimate (stand-in sensor at time t), plus any head-camera depth frame
+     delivered by t if the trial has a camera, and returns a command for
+     t + dt;
   2. the harness moves our arm toward it, at most v_max * dt per joint and
      within the joint position limits (so the arm cannot teleport), and
      moves the partner arm along its sampled joint trajectory to t + dt;
@@ -19,6 +21,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from dap.camera import FrameBuffer, sensed_depth
+from dap.depth_noise import DepthNoiseModel
 from dap.estimator import PalmEstimator
 from dap.experiment import Condition, ExperimentConfig, trial_rngs
 from dap.metrics import TrialResult
@@ -120,7 +124,15 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
               controller_factory=default_controller, return_log=False):
     """`controller_factory(cfg, cond, scenario)` builds the controller; it
     gets the scenario so reference baselines (e.g. the oracle) can use
-    ground truth. A real controller must not."""
+    ground truth. A real controller must not.
+
+    With `camera` (a dap.camera.HeadCameraConfig), the controller also gets
+    the head camera's depth frames, rendered as dap.envs.DapEnv renders them:
+    captured every 1/fps s with D435-style noise (the env's default `med`
+    preset, the trial's camera stream) and delivered `latency_frames` later,
+    through
+    `controller.observe(t_capture, depth, q_capture)`, where q_capture is
+    our joint positions at capture."""
     rngs = trial_rngs(seed)
     result = TrialResult(seed=seed, planner=cond.planner, noise_scale=cond.noise_scale)
     wall0 = time.perf_counter()
@@ -133,6 +145,12 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
     sensor = NoisyPoseSensor(motion, rngs["sensor"], NOISE_POS * cond.noise_scale,
                              NOISE_ANG * cond.noise_scale)
     estimator = PalmEstimator(pos_noise=sensor.noise_pos)
+
+    frames = None
+    if camera is not None:
+        noise = DepthNoiseModel.for_camera(camera, "med")
+        noise.reset(rngs["camera"], (camera.height, camera.width))
+        frames, last_capture = FrameBuffer(camera.fps, camera.latency_frames), None
 
     idx = scene.idx[OURS]
     v_max, q_lo, q_hi = scene.v_max[idx], scene.q_lower[idx], scene.q_upper[idx]
@@ -166,11 +184,20 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
             break
         t = k * cfg.dt
         estimator.update(t, *sensor.measure(t))
+        new_frame = None
+        if frames is not None:
+            if frames.due(t):
+                frames.push(t, (sensed_depth(scene.render_depth(), noise, camera.z_far), q.copy()))
+            got = frames.latest(t)
+            if got is not None and got[0] != last_capture:
+                last_capture, new_frame = got[0], got
         c0 = time.perf_counter()
         try:
+            if new_frame is not None:
+                controller.observe(new_frame[0], *new_frame[1])
             q_cmd = controller.step(t, q.copy(), estimator)
         except Exception:
-            return controller_crashed(f"controller.step failed at t={t:.2f}")
+            return controller_crashed(f"controller failed at t={t:.2f}")
         step_ms.append(1e3 * (time.perf_counter() - c0))
         q, ok = limit_command(q_cmd, q, v_max, cfg.dt, q_lo, q_hi)
         result.n_bad_commands += int(not ok)

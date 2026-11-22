@@ -56,7 +56,7 @@ import numpy as np
 from gymnasium import spaces
 
 from dap.bank import ScenarioBank
-from dap.camera import FrameBuffer, HeadCameraConfig
+from dap.camera import FrameBuffer, HeadCameraConfig, sensed_depth
 from dap.depth_noise import DepthNoiseModel
 from dap.estimator import PalmEstimator
 from dap.experiment import train_rngs, trial_rngs
@@ -327,10 +327,8 @@ class DapEnv(gym.Env):
         if self.frames.due(self.t):
             depth = None
             if self.uses_depth:
-                depth = self.scene.render_depth()
-                depth = self.noise.apply(depth) if self.noise is not None else np.nan_to_num(
-                    np.where(depth > self.camera_cfg.z_far, 0.0, depth), posinf=0.0)
-                depth = depth.astype(np.float32)
+                depth = sensed_depth(self.scene.render_depth(), self.noise,
+                                     self.camera_cfg.z_far)
             self.frames.push(self.t, (depth, self._partner_now()))
         got = self.frames.latest(self.t)
         if self.uses_depth and got is not None and got[0] != self._last_capture:

@@ -8,11 +8,14 @@ dap/planner.py and are scored by dap.trial.run_trial like anything else.
 | hold       | nothing                         | floor: never moves                     |
 | blind      | nothing (a pose fit offline)    | does the task need perception at all?  |
 | servo      | the stand-in pose sensor        | classical reactive baseline            |
+| servo_depth| head-camera depth (perception)  | the servo on the student's input       |
 | servo_gt   | ground truth (current state)    | reference: the servo with perfect state|
 | oracle     | ground truth incl. the future   | reference: knows the meeting in advance|
 
 The oracle and servo_gt read the scenario, so they are references, not
-methods.
+methods. servo_depth needs the head camera:
+
+    run_trial(cfg, cond, seed, camera=SERVO_DEPTH_CAMERA, controller_factory=servo_depth_factory)
 """
 
 from functools import lru_cache
@@ -20,6 +23,7 @@ from functools import lru_cache
 import numpy as np
 from pydrake.all import JacobianWrtVariable, RotationMatrix
 
+from dap.camera import HeadCameraConfig
 from dap.partner import min_jerk
 from dap.scene import OURS, P_PALM_FACE
 
@@ -122,6 +126,34 @@ class DiffIKServo:
         return q + qd * m.dt
 
 
+class DepthServo(DiffIKServo):
+    """The servo on the partner palm perceived from head-camera depth
+    (dap.perception.DepthPalmTracker), whose filter is updated at each
+    frame's capture time. Holds still until the first palm measurement.
+    Near the meeting our own hand hides the partner's palm from the head
+    camera for a few hundred ms, and extrapolating the filter that long runs
+    away, so the target is predicted at most `coast` s past the last
+    measurement and then held (the partner's reach ends at rest)."""
+
+    def __init__(self, tracker, coast=0.1, **kw):
+        super().__init__(self._partner, **kw)
+        self.tracker, self.coast = tracker, coast
+
+    def _partner(self, t, _):
+        e = self.tracker.estimator
+        age = t - e.t
+        p, v, _ = e.predict(min(age, self.coast) + LOOKAHEAD)
+        return p, (v if age <= self.coast else np.zeros(3)), e.rotation()
+
+    def observe(self, t_capture, depth, q_capture):
+        self.tracker.observe(t_capture, depth, q_capture)
+
+    def step(self, t, q, estimator):
+        if self.tracker.estimator.x is None:
+            return q.copy()
+        return super().step(t, q, estimator)
+
+
 # -- what each servo sees ----------------------------------------------------
 
 LOOKAHEAD = 0.1  # s, aim where the partner palm will be one servo time constant ahead
@@ -215,3 +247,18 @@ def servo_factory(cfg, cond, scenario):
 
 def servo_gt_factory(cfg, cond, scenario):
     return DiffIKServo(truth_partner(scenario))
+
+
+# The student's camera: dap.envs.DapEnv renders the head camera at camera_scale=0.25.
+SERVO_DEPTH_CAMERA = HeadCameraConfig().scaled(0.25)
+
+
+def servo_depth_factory(cfg, cond, scenario):
+    """Uses the scenario's layout (where the partner stands, as blind does)
+    and the head camera's configuration, nothing else."""
+    from dap.perception import DepthPalmTracker
+
+    camera = scenario.scene.camera_cfg
+    if camera is None:
+        raise ValueError("servo_depth needs the head camera: run_trial(..., camera=...)")
+    return DepthServo(DepthPalmTracker(scenario.layout, camera))
