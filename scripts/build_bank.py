@@ -5,11 +5,14 @@
 
 Scenarios come from training streams (dap.experiment.train_rngs), disjoint
 from every evaluation seed. Seeds whose sampling gives up are skipped and
-listed in the bank (`failed_seeds`). Banks are not committed (banks/ is in
-.gitignore); rebuild them from the same arguments.
+listed in the bank (`failed_seeds`). The bank records what built it
+(`provenance`), and the script prints the file's SHA-256. Banks are not
+committed (banks/ is in .gitignore): share the file and check its SHA-256
+(rebuilding on another machine is not known to give the same scenarios).
 """
 
 import argparse
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -41,6 +44,9 @@ def main():
     save_bank(bank, out)
     print(f"wrote {out}: {len(bank['specs'])} scenarios, {len(bank['failed_seeds'])} seeds "
           f"skipped, {bank['build_s']:.0f} s")
+    print(f"skipped seeds: {bank['failed_seeds']}")
+    print(f"provenance: {bank['provenance']}")
+    print(f"sha256: {hashlib.sha256(out.read_bytes()).hexdigest()}")
 
 
 if __name__ == "__main__":

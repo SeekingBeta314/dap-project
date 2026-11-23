@@ -110,7 +110,8 @@ def _envs():
     out["env/state/full/log"] = digest(env.log.arrays())
     # Banked and freshly sampled resets.
     bank = build_bank(2, "nominal", first_seed=0)
-    out["bank/build"] = digest(bank)
+    # Provenance (git commit, versions, platform) describes the machine, not behavior.
+    out["bank/build"] = digest({k: v for k, v in bank.items() if k != "provenance"})
     env = gym.make(ENV_ID, obs_mode="privileged", bank=bank).unwrapped
     out["env/privileged/bank"] = _rollout(env, {"seed": 3}, 10, actions)
     env = gym.make(ENV_ID, obs_mode="privileged").unwrapped

@@ -76,6 +76,8 @@ def test_bank_round_trip(tmp_path):
     save_bank(bank, path)
     loaded = ScenarioBank(path)
     assert len(loaded) == 3 and loaded.preset == "nominal"
+    assert set(loaded.provenance) == {"git", "drake", "numpy", "python", "platform"}
+    assert loaded.provenance["git"] != "unknown"  # the tests run inside the checkout
     sc = sample_scenario(train_rngs(6)["scenario"], SCENARIO_PRESETS["nominal"])
     _same_scenario(sc, loaded.get(1))
 
