@@ -158,8 +158,10 @@ pixel policy's result; all run through `run_trial` on the paired seeds
 | `servo_gt` | true current state | the same controller with perfect state (reference) |
 | `oracle` | the scenario, including the future meeting | knows the answer in advance (reference) |
 
-- **`servo`:** reactive differential IK (resolved-rate control with damped
-  least squares, damping 0.05, gain 10/s; **Ours**). Each step it aims our
+- **`servo`:** reactive differential IK (resolved-rate control, Whitney
+  1969, with damped least squares, Nakamura & Hanafusa 1986 and Wampler
+  1986; damping 0.05, gain 10/s, **Ours**): a position-based visual servo
+  (Chaumette & Hutchinson 2006) on a filtered pose estimate. Each step it aims our
   palm face at the antiparallel pose of the partner palm predicted 0.1 s
   ahead (the filter's prediction; `servo_gt` extrapolates the true state
   the same way), feeding the partner's velocity forward. It first lines up
@@ -779,7 +781,7 @@ discordance rate is unknown until the planner exists.
 ## 10. Methodology notes
 
 - **Filter model mismatch.** The estimator (`dap/estimator.py`) is a
-  constant-acceleration Kalman filter; the partner follows a min-jerk
+  constant-acceleration Kalman filter (Kalman 1960); the partner follows a min-jerk
   profile, whose acceleration changes sign mid-reach. The filter therefore
   lags a decelerating partner, and its velocity estimate is only roughly
   right mid-approach (`tests/test_estimator.py` tolerates 0.15 m/s for this
@@ -870,6 +872,13 @@ itself, except where marked.
 - Chao et al. HandoverSim. ICRA 2022, arXiv:2205.09747.
 - Wang et al. GenH2R. CVPR 2024, arXiv:2401.00929.
 - Christen et al. Learning human-to-robot handovers from point clouds. CVPR 2023, arXiv:2303.17592.
+
+**Control and estimation**
+- Whitney. Resolved motion rate control of manipulators and human prostheses. IEEE Trans. Man-Machine Syst. 10(2):47–53, 1969.
+- Nakamura, Hanafusa. Inverse kinematic solutions with singularity robustness for robot manipulator control. J. Dyn. Syst. Meas. Control 108(3):163–171, 1986.
+- Wampler. Manipulator inverse kinematic solutions based on vector formulations and damped least-squares methods. IEEE Trans. Syst. Man Cybern. 16(1):93–101, 1986.
+- Chaumette, Hutchinson. Visual servo control, Part I: basic approaches. IEEE Robot. Autom. Mag. 13(4):82–90, 2006.
+- Kalman. A new approach to linear filtering and prediction problems. J. Basic Eng. 82(1):35–45, 1960.
 
 **Perception**
 - Fischler, Bolles. Random sample consensus: a paradigm for model fitting with applications to image analysis and automated cartography. Commun. ACM 24(6):381–395, 1981.
