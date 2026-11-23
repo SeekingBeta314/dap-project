@@ -19,14 +19,19 @@ Code map:
 | Head camera, frame timing | `dap/camera.py` |
 | Depth noise | `dap/depth_noise.py` |
 | Feasibility check | `dap/feasibility.py` |
-| Partner motion | `dap/partner.py` |
+| Partner motion, stand-in pose sensor | `dap/partner.py` |
 | Scenario sampler | `dap/scenario.py` |
-| Trial loop (arm limits, logging) | `dap/trial.py` |
+| Trial loop (arm limits, logging, camera frames) | `dap/trial.py` |
 | Events, scores, loss | `dap/scoring.py` |
 | Result record | `dap/metrics.py` |
+| Conditions, configs, seed splits | `dap/experiment.py` |
 | Statistics | `dap/stats.py`, `scripts/analyze.py` |
-| Scripted references | `dap/baselines.py` |
+| Palm filter (Kalman) | `dap/estimator.py` |
+| Baselines and references | `dap/baselines.py` |
+| Depth perception for `servo_depth` | `dap/perception.py` |
 | Gymnasium env | `dap/envs/` |
+| Training scenario bank | `dap/bank.py` |
+| Scoring a learned policy | `dap/policy_eval.py` |
 
 ---
 

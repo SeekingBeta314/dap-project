@@ -43,7 +43,7 @@ Perception pipeline (the `servo_depth` baseline): [docs/perception_pipeline.md](
 | `scripts/show_scene.py` | View a sampled scenario in Meshcat, animate it, or save head-camera depth | done |
 | `scripts/run_experiment.py` | Run a config, append to `results/<name>/trials.jsonl` | done |
 | `scripts/analyze.py` | Paired analysis: rates with Wilson CIs, McNemar, paired bootstrap of the loss, success vs. partner speed | done |
-| `tests/` | Scene, camera, depth noise, feasibility, scenario, scoring, stats, trial harness, env (gymnasium `check_env`) | passing |
+| `tests/` | Scene, camera, depth noise, feasibility, scenario, scoring, stats, estimator, trial harness, seed splits, baselines, perception, scenario bank, env (gymnasium `check_env`), policy scoring, analysis, and a regression lock on trial and env behavior (`tests/data/regression_golden.json`) | passing |
 | `docs/` | Setup (with sources), the perception pipeline, and a record of edits made to the report (`report_fixes.md`) | |
 | `notebooks/` | Scratch notebooks (clear outputs before committing) | |
 | `results/` | Experiment outputs (git-ignored) | |
