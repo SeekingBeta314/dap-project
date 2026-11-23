@@ -708,14 +708,20 @@ policy's input.
     rebuilds the scene and the partner's spline from them in tens of ms.
     Rebuilt scenarios are identical to the sampled ones (tested).
   - **Banks are files, shared rather than rebuilt.** A bank is a pickle
-    in `banks/` (git-ignored; about 4.5 kB per scenario, so about 90 MB for
-    20,000, **E** from a 16-scenario build). It records what built it
+    in `banks/` (git-ignored; about 4.1 kB per scenario, **E**). It records what built it
     (`provenance`: git commit, marked `-dirty` for uncommitted changes,
     Drake, numpy and Python versions, platform), and `build_bank.py`
     prints the file's SHA-256. Whether another machine or Drake version
     samples the same scenarios from the same seeds is untested, so a
     trained policy names its bank by SHA-256, and everyone trains on the
     same file.
+  - **The Phase 2 training bank** (**E**, 2026-11-22):
+    `banks/train_nominal_20000.pkl`, `nominal`, training seeds 0–19999
+    (none skipped), built at commit `7660295` with Drake 1.58.0 on macOS
+    arm64; 82,418,716 bytes; SHA-256
+    `62136bc97350d68fc960452dbe66693d1160cc31172ed8ea954b2a1b5567bdda`.
+    It took 53 min of awake time with 8 workers. Three randomly chosen
+    scenarios match a fresh sample of their seed.
   - **Training seeds never overlap validation or evaluation seeds**
     (section 9, "Seed splits"). Banks and fresh env samples come from
     `dap.experiment.train_rngs`. Sampling from `np_random` directly would
