@@ -751,9 +751,16 @@ policy's input.
   Without a bank, resets sample fresh scenarios: about 1.1 s on average
   with the camera, up to several seconds. Building a bank takes about
   0.25 s per scenario per worker (40 scenarios in 10 s with 8 workers).
-- **Training dependencies are not installed.** For later: stable-baselines3
-  2.9.2 needs `gymnasium>=0.29.1,<2` and `torch>=2.8`; Drake's and the
-  `manipulation` book's examples use SB3 PPO with `SubprocVecEnv`.
+- **Training dependencies** (`requirements.txt`): stable-baselines3
+  2.9.2, which requires `gymnasium>=0.29.1,<2`, `numpy<3` and
+  `torch>=2.8,<3` (its PyPI metadata, **V**); tested with torch 2.15.0
+  (CPU and MPS wheels for Apple silicon) and gymnasium 1.4.0. Drake and
+  torch load in one process, and SB3 PPO runs on the env in both
+  `privileged` and `pixels` modes (**E**, plumbing check only). SB3's
+  default `CombinedExtractor` flattens the float depth stack into an MLP
+  input, so the student needs its own CNN extractor (see above). Drake's
+  and the `manipulation` book's examples use SB3 PPO with
+  `SubprocVecEnv`.
 
 ## 9. Experiments and statistics (`dap/experiment.py`, `dap/stats.py`, `scripts/analyze.py`)
 
