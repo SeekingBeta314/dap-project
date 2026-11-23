@@ -37,7 +37,8 @@ Design (sources in docs/setup.md, "RL environment"):
     privileged vector (labels for distillation); `info` is ground truth and
     must never be fed to a deployed policy.
   - Scenarios: `reset(options={"trial_seed": s})` samples experiment seed s
-    exactly as a trial does (evaluation, dap.policy_eval). Otherwise, with
+    exactly as a trial does (evaluation, dap.policy_eval); add `"split":
+    "val"` for validation seed s (dap.experiment.SPLITS). Otherwise, with
     `bank=` (dap.bank, training seeds disjoint from evaluation) a reset
     rebuilds a random banked scenario in tens of ms; without a bank it
     samples a fresh one from a training stream (about 1 s).
@@ -59,7 +60,7 @@ from dap.bank import ScenarioBank
 from dap.camera import FrameBuffer, HeadCameraConfig, sensed_depth
 from dap.depth_noise import DepthNoiseModel
 from dap.estimator import PalmEstimator
-from dap.experiment import train_rngs, trial_rngs
+from dap.experiment import SPLITS, train_rngs
 from dap.partner import NOISE_ANG, NOISE_POS, NoisyPoseSensor
 from dap.scenario import SCENARIO_PRESETS, sample_scenario
 from dap.scene import OURS, Scene
@@ -215,18 +216,20 @@ class DapEnv(gym.Env):
         """`options={"trial_seed": s}` replays experiment trial seed `s`
         (dap.experiment.trial_rngs: its scenario, stand-in sensor noise and
         depth noise), so a policy is evaluated on exactly the seeds the other
-        controllers use. Otherwise a banked (or freshly sampled) training
-        scenario."""
+        controllers use; `options={"trial_seed": s, "split": "val"}` replays
+        validation seed `s` instead. Otherwise a banked (or freshly sampled)
+        training scenario."""
         super().reset(seed=seed)
         rng = self.np_random
         camera = self.camera_cfg if self.use_camera else None
         trial_seed = (options or {}).get("trial_seed")
         camera_rng = None
         if trial_seed is not None:
-            streams = trial_rngs(int(trial_seed))
+            split = options.get("split", "eval")
+            streams = SPLITS[split](int(trial_seed))
             sc = sample_scenario(streams["scenario"], self.scenario_cfg, camera=camera)
             sensor_rng, camera_rng = streams["sensor"], streams["camera"]
-            self.scenario_id = ("trial", int(trial_seed))
+            self.scenario_id = ("trial" if split == "eval" else split, int(trial_seed))
         elif self.bank is not None:
             i = int(rng.integers(len(self.bank)))
             sc = self.bank.get(i, camera)

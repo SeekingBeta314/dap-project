@@ -188,6 +188,17 @@ def test_trial_seed_replays_the_depth_noise_too():
     assert np.array_equal(runs[0], runs[1])
 
 
+def test_trial_seed_replays_validation_seeds():
+    from dap.experiment import val_rngs
+    from dap.scenario import SCENARIO_PRESETS, sample_scenario
+
+    env = gym.make(ENV_ID, obs_mode="privileged").unwrapped
+    _, info = env.reset(options={"trial_seed": 3, "split": "val"})
+    sc = sample_scenario(val_rngs(3)["scenario"], SCENARIO_PRESETS["nominal"])
+    assert info["scenario_id"] == ("val", 3)
+    assert np.array_equal(env.scenario.q_ours0, sc.q_ours0)
+
+
 def test_bank_resets_rebuild_banked_scenarios(tmp_path):
     from dap.bank import build_bank, save_bank
 

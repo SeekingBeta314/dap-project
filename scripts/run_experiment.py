@@ -69,7 +69,6 @@ def _run_one(args):
     except Exception as e:
         if fail_fast:
             raise
-        from dap.experiment import trial_rngs
         from dap.scenario import SCENARIO_PRESETS, ScenarioError, draw_peak_speed
 
         # Controller crashes are caught inside run_trial (a trial outcome);
@@ -78,7 +77,7 @@ def _run_one(args):
         r.outcome = "error"
         r.error_kind = "scenario" if isinstance(e, ScenarioError) else "harness"
         # The drawn partner speed is the scenario stream's first draw.
-        r.target_peak_speed = draw_peak_speed(trial_rngs(seed)["scenario"],
+        r.target_peak_speed = draw_peak_speed(cfg.rngs(seed)["scenario"],
                                               SCENARIO_PRESETS[cfg.scenario])
         r.error = traceback.format_exc(limit=5)
         return r.to_dict()

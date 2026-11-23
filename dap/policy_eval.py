@@ -3,9 +3,9 @@
     result = run_policy_trial(cfg, Condition("student", 1.0), seed, policy)
 
 The policy acts through the RL env (dap/envs), which shares the trial's arm
-limits, event rule and horizon (dap.trial). The env replays experiment seed
-`seed` (`reset(options={"trial_seed": seed})`: the same scenario, sensor and
-depth-noise streams as dap.trial.run_trial), records the trial's
+limits, event rule and horizon (dap.trial). The env replays seed `seed` of
+the config's split (`reset(options={"trial_seed": seed, "split": cfg.split})`:
+the same scenario, sensor and depth-noise streams as dap.trial.run_trial), records the trial's
 ground-truth log, and the log is scored by dap.scoring.evaluate with the
 same live/offline agreement check. The resulting TrialResult rows have the
 same fields and covariates as a planner's, so scripts/analyze.py compares
@@ -64,7 +64,7 @@ def run_policy_trial(cfg: ExperimentConfig, cond: Condition, seed: int, policy, 
 
     result = TrialResult(seed=seed, planner=cond.planner, noise_scale=cond.noise_scale)
     wall0 = time.perf_counter()
-    obs, _ = env.reset(options={"trial_seed": int(seed)})
+    obs, _ = env.reset(options={"trial_seed": int(seed), "split": cfg.split})
     record_scenario(result, env.scenario)
 
     def policy_crashed(what):

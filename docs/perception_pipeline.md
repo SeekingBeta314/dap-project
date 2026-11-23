@@ -64,7 +64,7 @@ guard against failures found in review (a lock onto the partner's elbow, a
 single wrong sign turning the target 180°); their effect on end-to-end
 success was within noise on 24 training trials. Design choices were first
 explored on evaluation seeds 0–15 and then re-checked on training
-scenarios (`docs/setup.md` section 1b).
+scenarios; those evaluation seeds are now spent (`docs/setup.md` section 9).
 
 ## Known limits
 

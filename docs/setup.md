@@ -208,15 +208,15 @@ pixel policy's result; all run through `run_trial` on the paired seeds
   from evaluation): the mean offset of our meeting palm from the nominal
   point and the chordal mean of its orientation, in the frame facing the
   partner base.
-- **First look** (12 seeds per preset, **E**; a check that the baselines
-  work, not a result):
+- **First look** (`first_look`, `first_look_wide`: validation seeds 0–11
+  per preset, **E**; a check that the baselines work, not a result):
 
   | | `nominal` | `wide` |
   | --- | --- | --- |
-  | `blind` | 0/12 successes (5 contacts, all > 15° off; 5 collisions) | 0/12 (11 collisions) |
-  | `servo` | 12/12 | 11/12 (1 collision) |
-  | `servo_depth` | 3/12 (8 collisions, 1 timeout) | 2/12 (7 collisions, 3 timeouts) |
-  | `servo_gt` | 12/12 | 12/12 |
+  | `blind` | 0/12 successes (5 contacts, all > 15° off; 7 collisions) | 0/12 (2 contacts > 15° off, 9 collisions, 1 timeout) |
+  | `servo` | 11/12 (1 collision) | 11/12 (1 timeout) |
+  | `servo_depth` | 0/12 (3 contacts > 15° off, 8 collisions, 1 timeout) | 3/12 (9 collisions) |
+  | `servo_gt` | 10/12 (1 contact > 15° off, 1 collision) | 11/12 (1 timeout) |
 
   Meeting poses vary too much to guess: over the 30 training scenarios
   the blind prior is fitted on, our meeting palm face lies 2–14 cm from the
@@ -231,12 +231,13 @@ pixel policy's result; all run through `run_trial` on the paired seeds
     (`time_err`, the loss) but not required.
   - The stand-in sensor (no latency, no occlusion) makes the classical
     baseline strong. On the student's depth frames the same servo mostly
-    collides hand on hand. Camera timing and visibility are not the cause:
-    fed the true palm pose at the camera's capture times (one frame late,
-    same 0.1 s coast), it daps 12/12 and 10/12, and 11/12 and 10/12 when
-    given it only on frames where at least 15 partner points lie within
-    10 cm of the palm (**E**, scratch diagnostic on the same seeds). The gap is the
-    perception. On the frames of 16 `servo` trials on training scenarios,
+    collides hand on hand. Most of the gap is the perception: fed the true
+    palm pose at the camera's capture times instead (one frame late, same
+    0.1 s coast), it daps 8/12 and 9/12, and 7/12 and 8/12 when given it
+    only on frames where at least 15 partner points lie within 10 cm of
+    the palm (**E**, scratch diagnostic on the same validation seeds).
+    Camera timing and visibility cost a few successes; the perception
+    step costs most of the rest. On the frames of 16 `servo` trials on training scenarios,
     65% of frames give a fix; of the fixes, 84% have the palm normal within
     15° (median 3.2°), 69% the position within 5 cm (median 1.9 cm), and
     15% the finger direction flipped. In 2 of the 16 trials the hand is
@@ -244,9 +245,10 @@ pixel policy's result; all run through `run_trial` on the paired seeds
     patch of the partner's arm (**E**).
   - Its design choices were first explored on evaluation seeds 0–15 (a
     mistake) and then re-checked on training scenarios
-    (`dap.experiment.train_rngs`), where the final choices were made. The
-    first-look row above uses evaluation seeds 0–11, so it is not a clean
-    held-out estimate; experiment seeds beyond 15 are untouched.
+    (`dap.experiment.train_rngs`), where the final choices were made. Those
+    evaluation seeds are now spent (section 9). On them `servo_depth` had
+    daped 3/12 and 2/12; on the validation seeds above, which played no
+    part in its design, 0/12 and 3/12.
 - **Not built:** a plan-once variant of the servo. Freezing the current
   partner estimate would be a strawman; a fair one needs a predictor of
   where the partner's reach will end.
@@ -672,15 +674,15 @@ policy's input.
     each sampled scenario's layout, path parameters and IK knots; a reset
     rebuilds the scene and the partner's spline from them in tens of ms.
     Rebuilt scenarios are identical to the sampled ones (tested).
-  - **Training seeds never overlap evaluation seeds.** Banks and fresh
-    env samples come from `dap.experiment.train_rngs` (entropy
-    `[seed, k, TRAIN_TAG]`); experiments use `trial_rngs` (`[seed, k]`).
-    Sampling from `np_random` directly would not do: numpy drops trailing
-    zero words, so `default_rng([s, 0])` is `default_rng(s)`, the stream
-    `reset(seed=s)` gets (tested).
+  - **Training seeds never overlap validation or evaluation seeds**
+    (section 9, "Seed splits"). Banks and fresh env samples come from
+    `dap.experiment.train_rngs`. Sampling from `np_random` directly would
+    not do: numpy drops trailing zero words, so `default_rng([s, 0])` is
+    `default_rng(s)`, the stream `reset(seed=s)` gets (tested).
   - **Evaluation:** `reset(options={"trial_seed": s})` samples experiment
     seed `s` exactly as `run_trial` does, with its stand-in-sensor and
-    depth-noise streams, bypassing any bank.
+    depth-noise streams, bypassing any bank; `"split": "val"` replays
+    validation seed `s` instead.
   - Without a bank or a trial seed, a reset samples a fresh scenario from
     a training stream seeded by `self.np_random`.
 - **Scoring a policy** (`dap/policy_eval.py`): `run_policy_trial(cfg,
@@ -732,12 +734,45 @@ speed.
 
 | Config | Question | Conditions | Seeds |
 | --- | --- | --- | --- |
-| `smoke` | plumbing | replan | 3 |
-| `replan_vs_once` | H1: does replanning beat planning once? | {once, replan} × noise {0.5, 1, 2} | 150 |
-| `speed_limits` | H2: how does success fall with partner speed? | replan | 300 |
+| `smoke` | plumbing | replan | validation 0–2 |
+| `first_look`, `first_look_wide` | do the baselines work? (section 1b) | a baseline | validation 0–11 |
+| `replan_vs_once` | H1: does replanning beat planning once? | {once, replan} × noise {0.5, 1, 2} | evaluation 1000–1149 |
+| `speed_limits` | H2: how does success fall with partner speed? | replan | evaluation 1000–1299 |
 
 `run_experiment.py --controller hold|blind|servo|servo_depth|servo_gt|oracle` runs the
 baselines and references (section 1b) on the same seeds.
+
+**Seed splits** (`dap.experiment.SPLITS`). Three splits, each with its own
+streams, and each used for one thing:
+
+| Split | Streams | Used for |
+| --- | --- | --- |
+| train | `train_rngs` | learning: scenario banks, fresh env scenarios, the `blind` prior |
+| val | `val_rngs` | everything decided by looking at results: development checks, design and hyperparameter choices, checkpoint selection, early stopping, the first-look table |
+| eval | `trial_rngs` | reported results only, from seed 1000 on |
+
+- **Disjoint at any number of seeds.** Evaluation streams have entropy
+  `[seed, k]` with seed < 2³² (enforced), at most two 32-bit words.
+  Training and validation streams have `[seed, k, TAG]` with two different
+  nonzero tags, so they are at least three words long and differ in the
+  last word, whatever the seed (fresh env scenarios draw training seeds up
+  to 2⁶³). No seed of one split reproduces another split's scenario, sensor
+  noise or depth noise (tested). Seed counts can grow by orders of magnitude
+  in every split without the splits meeting.
+- **Evaluation seeds below 1000 are spent.** Before the validation split
+  existed, development ran on evaluation seeds: 0–15 for the baselines and
+  the perception pipeline, and low seeds for the setup measurements marked
+  **E** in sections 1–7. Not every earlier measurement recorded its seeds,
+  so the cut-off sits well above every seed range we used. An evaluation config
+  cannot start below `EVAL_FIRST_SEED` = 1000 (enforced). Tests and the
+  regression lock still use low evaluation seeds; they make no decisions.
+- **One look per method.** A method is fixed (code, hyperparameters, the
+  checkpoint chosen on validation seeds) before it runs on evaluation seeds,
+  and the evaluation run is not used to change it. If it is changed anyway,
+  the next evaluation uses fresh seeds and the report says so. Evaluation
+  sizes are chosen in advance (sample sizes below).
+- **Paired across methods.** Every method in one comparison runs on the same
+  evaluation seeds, whatever its type (planner, baseline, policy).
 
 **Analysis** (`scripts/analyze.py`):
 - **Success rates** with 95% Wilson score intervals (Wilson 1927;

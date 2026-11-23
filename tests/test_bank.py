@@ -1,13 +1,13 @@
-"""Scenario bank: rebuilt scenarios are identical to sampled ones, training
-streams are disjoint from evaluation seeds, and the IK context cache leaves
-sampling unchanged."""
+"""Scenario bank: rebuilt scenarios are identical to sampled ones, fresh env
+scenarios are not evaluation scenarios, and the IK context cache leaves
+sampling unchanged. Split disjointness: tests/test_experiment.py."""
 
 import numpy as np
 import pytest
 
 from dap.bank import ScenarioBank, build_bank, save_bank, scenario_from_spec, scenario_spec
 from dap.camera import HeadCameraConfig
-from dap.experiment import TRAIN_TAG, train_rngs, trial_rngs
+from dap.experiment import train_rngs, trial_rngs
 from dap.scenario import SCENARIO_PRESETS, sample_scenario
 from dap.scene import OURS, PARTNER
 
@@ -44,18 +44,6 @@ def test_a_wide_bank_contains_target_switches():
         if sp["reference"]["switch"] is not None:
             rebuilt = scenario_from_spec(sp)
             assert rebuilt.partner.reference.switch is not None
-
-
-def test_training_streams_are_not_evaluation_streams():
-    # Different entropy (three words ending in TRAIN_TAG vs. two words), so
-    # different streams; spot-check that no training stream starts like any
-    # evaluation stream.
-    assert TRAIN_TAG != 0
-    eval_first = {trial_rngs(s)[k].random() for s in range(200) for k in ("scenario", "sensor",
-                                                                          "camera")}
-    train_first = {train_rngs(s)[k].random() for s in range(200) for k in ("scenario", "sensor",
-                                                                           "camera")}
-    assert not eval_first & train_first
 
 
 def test_fresh_env_scenarios_are_not_evaluation_scenarios():

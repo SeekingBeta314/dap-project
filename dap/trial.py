@@ -24,7 +24,7 @@ import numpy as np
 from dap.camera import FrameBuffer, sensed_depth
 from dap.depth_noise import DepthNoiseModel
 from dap.estimator import PalmEstimator
-from dap.experiment import Condition, ExperimentConfig, trial_rngs
+from dap.experiment import Condition, ExperimentConfig
 from dap.metrics import TrialResult
 from dap.partner import NOISE_ANG, NOISE_POS, NoisyPoseSensor
 from dap.planner import ReplanningController, controller_model
@@ -133,7 +133,7 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
     through
     `controller.observe(t_capture, depth, q_capture)`, where q_capture is
     our joint positions at capture."""
-    rngs = trial_rngs(seed)
+    rngs = cfg.rngs(seed)
     result = TrialResult(seed=seed, planner=cond.planner, noise_scale=cond.noise_scale)
     wall0 = time.perf_counter()
 

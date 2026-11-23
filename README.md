@@ -38,7 +38,7 @@ Perception pipeline (the `servo_depth` baseline): [docs/perception_pipeline.md](
 | `dap/scoring.py` | The one definition of contact, collision, success, scores and the (vectorized) loss | done |
 | `dap/metrics.py` | Per-trial result record (harness measurements only) | done |
 | `dap/stats.py` | Wilson intervals, exact McNemar, paired bootstrap, Holm | done |
-| `dap/experiment.py` | Conditions (planner x sensor noise) + named configs (`smoke`, H1, H2) | done |
+| `dap/experiment.py` | Conditions (planner x sensor noise), seed splits (train / val / eval), named configs (`smoke`, `first_look`, H1, H2) | done |
 | `dap/trial.py` | Causal kinematic trial loop: arm limits enforced, ground truth logged, scored afterwards | done; needs the controller |
 | `scripts/show_scene.py` | View a sampled scenario in Meshcat, animate it, or save head-camera depth | done |
 | `scripts/run_experiment.py` | Run a config, append to `results/<name>/trials.jsonl` | done |
@@ -117,7 +117,11 @@ Each named config in `dap/experiment.py` is a grid of conditions (planner x
 sensor-noise scale) times seeds, on a scenario preset
 (`ExperimentConfig.scenario`, default `nominal`). Every condition reuses the
 same seeds, and a seed fixes the whole scenario (layout, partner path and
-speed, our start) and the sensor noise, so comparisons are paired. Partner
+speed, our start) and the sensor noise, so comparisons are paired. Seeds
+come from three disjoint splits (docs/setup.md section 9): training for
+learning, validation for every check or choice made by looking at results,
+and evaluation for reported results only, from seed 1000 on (lower ones
+were used during development). Partner
 speed is not a condition: it is drawn per scenario and analysed against the
 realized speed.
 
@@ -130,9 +134,10 @@ ground-truth log; nothing the controller reports is scored.
 
 | Config | Tests | Conditions |
 | --- | --- | --- |
-| `smoke` | Plumbing | replan only, 3 seeds |
-| `replan_vs_once` | H1 | planner {once, replan} x noise {0.5, 1, 2}, 150 seeds |
-| `speed_limits` | H2 | replan, 300 seeds, analysed by partner speed |
+| `smoke` | Plumbing | replan only, 3 validation seeds |
+| `first_look`, `first_look_wide` | Do the baselines work? | one baseline, 12 validation seeds |
+| `replan_vs_once` | H1 | planner {once, replan} x noise {0.5, 1, 2}, 150 evaluation seeds |
+| `speed_limits` | H2 | replan, 300 evaluation seeds, analysed by partner speed |
 
 ```bash
 python scripts/run_experiment.py smoke --dry-run           # list conditions, run nothing
