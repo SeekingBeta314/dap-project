@@ -12,6 +12,7 @@ its own partner speed (peak palm speed 0.15–0.9 m/s).
 
 **Problem setup, every parameter and its source:** [docs/setup.md](docs/setup.md).
 Perception pipeline (the `servo_depth` baseline): [docs/perception_pipeline.md](docs/perception_pipeline.md).
+**Next (Phase 2, perception):** [docs/phase2_plan.md](docs/phase2_plan.md).
 
 **Proposal (living draft):** https://claude.ai/artifact/QUBj973spHWSZKigTEf1Cz
 
@@ -138,6 +139,9 @@ ground-truth log; nothing the controller reports is scored.
 | `first_look`, `first_look_wide` | Do the baselines work? | one baseline, 12 validation seeds |
 | `replan_vs_once` | H1 | planner {once, replan} x noise {0.5, 1, 2}, 150 evaluation seeds |
 | `speed_limits` | H2 | replan, 300 evaluation seeds, analysed by partner speed |
+
+H1 and H2 test the trajectory planner, which is no longer the project's focus;
+Phase 2 replaces them with perception experiments ([docs/phase2_plan.md](docs/phase2_plan.md)).
 
 ```bash
 python scripts/run_experiment.py smoke --dry-run           # list conditions, run nothing

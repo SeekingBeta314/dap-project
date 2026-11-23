@@ -166,7 +166,8 @@ pixel policy's result; all run through `run_trial` on the paired seeds
 - **`servo`:** reactive differential IK (resolved-rate control, Whitney
   1969, with damped least squares, Nakamura & Hanafusa 1986 and Wampler
   1986; damping 0.05, gain 10/s, **Ours**): a position-based visual servo
-  (Chaumette & Hutchinson 2006) on a filtered pose estimate. Each step it aims our
+  (Chaumette & Hutchinson 2006; for a moving target, Part II, 2007) on a
+  filtered pose estimate. Each step it aims our
   palm face at the antiparallel pose of the partner palm predicted 0.1 s
   ahead (the filter's prediction; `servo_gt` extrapolates the true state
   the same way), feeding the partner's velocity forward. It first lines up
@@ -744,6 +745,10 @@ speed.
 | `replan_vs_once` | H1: does replanning beat planning once? | {once, replan} × noise {0.5, 1, 2} | evaluation 1000–1149 |
 | `speed_limits` | H2: how does success fall with partner speed? | replan | evaluation 1000–1299 |
 
+H1 and H2 belong to the trajectory planner, which is no longer the
+project's focus; Phase 2 replaces them with perception experiments
+(`docs/phase2_plan.md`).
+
 `run_experiment.py --controller hold|blind|servo|servo_depth|servo_gt|oracle` runs the
 baselines and references (section 1b) on the same seeds.
 
@@ -918,6 +923,7 @@ itself, except where marked.
 - Nakamura, Hanafusa. Inverse kinematic solutions with singularity robustness for robot manipulator control. J. Dyn. Syst. Meas. Control 108(3):163–171, 1986.
 - Wampler. Manipulator inverse kinematic solutions based on vector formulations and damped least-squares methods. IEEE Trans. Syst. Man Cybern. 16(1):93–101, 1986.
 - Chaumette, Hutchinson. Visual servo control, Part I: basic approaches. IEEE Robot. Autom. Mag. 13(4):82–90, 2006.
+- Chaumette, Hutchinson. Visual servo control, Part II: advanced approaches. IEEE Robot. Autom. Mag. 14(1):109–118, 2007.
 - Kalman. A new approach to linear filtering and prediction problems. J. Basic Eng. 82(1):35–45, 1960.
 
 **Perception**
