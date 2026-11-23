@@ -35,7 +35,8 @@ The first event ends the trial. No event before the time limit = "timeout".
 
 Success = the event is a contact and the palms are antiparallel
 (rot_err <= tolerance). Everything else (position, timing, speed) is a
-continuous score; `dap_loss` combines them (weights are placeholders).
+continuous score; `dap_loss` combines them. Tolerance and weights were
+settled for Phase 2 (docs/setup.md section 1b) before any evaluation run.
 """
 
 from dataclasses import dataclass
@@ -50,8 +51,9 @@ IN_PLANE = 0.05
 # closing speed the arms can reach.
 MAX_PENETRATION = 0.05
 
-# Antiparallel tolerance on rot_err for success (deg). Placeholder (Ours)
-# until the team settles it.
+# Antiparallel tolerance on rot_err for success (deg). Ours: we found no
+# source for a human dap's tolerance; settled for Phase 2 (docs/setup.md
+# section 1b).
 ROT_TOL_DEFAULT = 15.0
 
 R_TARGET = np.array([[-1.0, 0, 0], [0, 1.0, 0], [0, 0, -1.0]])  # RotY(pi)
@@ -182,8 +184,10 @@ def evaluate(a, t_meet_true, tol: Tolerances, v_max=None):
 
 @dataclass(frozen=True)
 class LossWeights:
-    """Placeholder weights and scales (Ours) for `dap_loss`; the team will
-    settle the real loss later.
+    """Weights and scales (Ours) for `dap_loss`, settled for Phase 2
+    (docs/setup.md section 1b). Timing is unweighted: success does not
+    require it and no comparator chooses a meeting time, so `time_err` is
+    reported as its own score instead.
 
     The loss is tiered, so outcomes keep a fixed order whatever the errors
     (every success < every failed contact < every miss < every collision):
@@ -201,7 +205,7 @@ class LossWeights:
     rel_speed_scale: float = 0.5  # m/s
     w_pos: float = 1.0
     w_rot: float = 1.0
-    w_time: float = 1.0
+    w_time: float = 0.0  # timing: reported, unweighted (see above)
     w_speed: float = 0.0  # relative speed at contact: reported, unweighted for now
     tier: float = 5.0  # width of each outcome tier
     miss_dist_scale: float = 0.3  # m, closest-approach distance at which a miss saturates

@@ -1,7 +1,5 @@
-"""Our controller: kinematic trajectory optimization + replanning (proposal
-section 4.3), and the contract `dap.trial.run_trial` drives.
-
-Contract (also implemented by the scripted references in dap/baselines.py):
+"""The controller contract `dap.trial.run_trial` drives (implemented by the
+baselines and references in dap/baselines.py):
 
     controller.reset(model: ControllerModel, q0)
     q_cmd = controller.step(t, q, estimator)    # every dt
@@ -54,40 +52,3 @@ def controller_model(scene, dt):
         v_max=scene.v_max[idx].copy(), dt=dt,
     )
 
-
-def plan_to_meeting(model: ControllerModel, q_now, qdot_now, meeting, t_now):
-    """Return a joint-space trajectory that arrives at `meeting.X_WPalm` at
-    `meeting.t_meet`. The arrival velocity is a planner design choice (e.g.
-    at rest, or moving with the predicted partner velocity); success does
-    not score it, the loss may (dap.scoring.LossWeights.w_speed).
-
-    Constraints (KinematicTrajectoryOptimization):
-      - MinimumDistanceLowerBoundConstraint vs. the predicted partner arm
-      - joint position / velocity limits
-      - start at (q_now, qdot_now); end at meeting.q_meet
-    On failure: let the caller try another meeting point.
-    """
-    # TODO
-    raise NotImplementedError
-
-
-class ReplanningController:
-    """Runs estimate -> meeting point -> plan at a fixed rate."""
-
-    def __init__(self, replan_hz=10.0, replan=True):
-        self.replan_hz = replan_hz
-        self.replan = replan  # False = plan-once baseline
-
-    def reset(self, model: ControllerModel, q0):
-        """Start of a trial."""
-        # TODO
-        raise NotImplementedError
-
-    def step(self, t, q, estimator):
-        """Return the commanded joint positions (7,) for t + dt.
-
-        Replans when `replan` is set and 1/replan_hz has passed since the last
-        plan (plans once otherwise).
-        """
-        # TODO
-        raise NotImplementedError

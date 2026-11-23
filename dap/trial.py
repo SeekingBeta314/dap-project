@@ -27,7 +27,7 @@ from dap.estimator import PalmEstimator
 from dap.experiment import Condition, ExperimentConfig
 from dap.metrics import TrialResult
 from dap.partner import NOISE_ANG, NOISE_POS, NoisyPoseSensor
-from dap.planner import ReplanningController, controller_model
+from dap.planner import controller_model
 from dap.scenario import SCENARIO_PRESETS, sample_scenario
 from dap.scene import OURS
 from dap.scoring import EventMonitor, evaluate
@@ -54,10 +54,6 @@ class TrialLog:
 
     def arrays(self):
         return {k: np.asarray(v) for k, v in self.__dict__.items()}
-
-
-def default_controller(cfg: ExperimentConfig, cond: Condition, scenario):
-    return ReplanningController(replan_hz=cfg.replan_hz, replan=(cond.planner == "replan"))
 
 
 def record_scenario(result: TrialResult, sc):
@@ -121,7 +117,7 @@ def limit_command(q_cmd, q, v_max, dt, q_lo, q_hi):
 
 
 def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
-              controller_factory=default_controller, return_log=False):
+              *, controller_factory, return_log=False):
     """`controller_factory(cfg, cond, scenario)` builds the controller; it
     gets the scenario so reference baselines (e.g. the oracle) can use
     ground truth. A real controller must not.

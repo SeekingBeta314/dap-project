@@ -101,8 +101,18 @@ motion plus `t_extra` = 1 s, `dap.trial.horizon_steps`) is a **timeout**.
 ## 1b. Success, scores and loss
 
 **Success = the trial ended in a contact and the palms are antiparallel:
-`rot_err ≤ 15°`** (`Tolerances.rot_tol`, a placeholder, **Ours**). Position
-and timing are not success criteria; they are scores:
+`rot_err ≤ 15°`** (`Tolerances.rot_tol`, **Ours**). Position and timing
+are not success criteria; they are scores.
+
+*Settled for Phase 2 (2026-11-22), before any evaluation run.* We found no
+source for how precisely people align palms in a dap, so 15° is our
+choice; the oracle's median at contact is 2.4°, so it is not lenient for a
+good controller. Success does not require timing: a timing requirement
+would make the Phase 2 comparison partly a timing test, which the project
+does not claim (no comparator chooses a meeting time,
+`docs/phase2_plan.md` section 2), and it would penalize the servo baselines
+for a step they do not attempt. The cost: a touch against a partner palm
+that has already stopped counts as a dap. Timing is reported as `time_err`.
 
 | Score (at contact) | Meaning |
 | --- | --- |
@@ -115,11 +125,10 @@ and timing are not success criteria; they are scores:
 | `min_arm_dist`, `vmax_frac` | closest arm–arm distance; fraction of steps with a joint at ≥ 95% of its speed limit |
 
 **Loss** (`dap_loss`, vectorized over a results table, lower is better;
-weights are placeholders in `LossWeights`, **Ours**). It is tiered, so the
-outcomes keep a fixed order whatever the errors: every success < every
-failed contact < every miss < every collision. With
-`e = (pos_err/3 cm)² + (rot_err/15°)² + (time_err/0.1 s)²` (+ an optional
-relative-speed term, weight 0 for now) and `f(e) = 5e/(e+1) ∈ [0, 5)`:
+weights in `LossWeights`, **Ours**, settled with the tolerance). It is
+tiered, so the outcomes keep a fixed order whatever the errors: every
+success < every failed contact < every miss < every collision. With
+`e = (pos_err/3 cm)² + (rot_err/15°)²` and `f(e) = 5e/(e+1) ∈ [0, 5)`:
 - success: `f(e)`, in [0, 5);
 - failed contact (rotation error over the tolerance): `5 + f(e)`, in [5, 10);
 - timeout: `10 + 5 · min(min_palm_dist / 0.3 m, 1)²`, in [10, 15], so a
@@ -127,6 +136,13 @@ relative-speed term, weight 0 for now) and `f(e) = 5e/(e+1) ∈ [0, 5)`:
 - collision: 20;
 - crashed trials: NaN here; the analysis gives controller crashes the
   collision loss (section 9).
+
+Timing and contact speed have terms in `LossWeights` (`w_time`,
+`time_scale` 0.1 s; `w_speed`, `rel_speed_scale` 0.5 m/s) with weight 0.
+Weighted at 1, the time term alone would put any contact 0.3 s or more
+off at 90% or more of its tier's width, and the servo's contacts range from 1.6 s
+early to 0.6 s late, so the loss would mostly measure the timing that
+success deliberately leaves out. Both are reported as their own scores.
 
 Changing the weights re-scores stored results without re-running anything,
 since `trials.jsonl` keeps every component.
@@ -152,7 +168,7 @@ So the task is solvable but not trivial.
 
 **Baselines** (`dap/baselines.py`). Each answers one question about the
 pixel policy's result; all run through `run_trial` on the paired seeds
-(`run_experiment.py --controller <name>`).
+(`run_experiment.py <config> --controller <name>`).
 
 | Name | Sees the partner through | Question |
 | --- | --- | --- |
@@ -161,6 +177,7 @@ pixel policy's result; all run through `run_trial` on the paired seeds
 | `servo` | the stand-in pose sensor (section 10) | what does a simple classical controller achieve? |
 | `servo_depth` | the head camera's depth frames, the student's input | the same controller with real perception |
 | `servo_gt` | true current state | the same controller with perfect state (reference) |
+| `servo_gt_cam` | the true palm pose at the camera's capture times | `servo_depth` with perfect perception; the classical counterpart of the teacher (reference) |
 | `oracle` | the scenario, including the future meeting | knows the answer in advance (reference) |
 
 - **`servo`:** reactive differential IK (resolved-rate control, Whitney
@@ -207,6 +224,16 @@ pixel policy's result; all run through `run_trial` on the paired seeds
     the constant-acceleration filter through a blackout runs away.
   - What it may know: the camera's configuration and where the partner
     stands (as `blind`), nothing about the partner's motion.
+- **`servo_gt_cam`:** `servo_depth` with its tracker replaced by the
+  truth (`TruthAtCapture`): at each delivered frame's capture time (30 fps,
+  one frame late) the true palm position, normal and finger direction
+  update the same filter, with the same settings, and the servo predicts
+  at most 0.1 s past the last update, as `servo_depth` does. It has no
+  detection errors and no occlusion, and ignores the image. Unlike the
+  teacher's privileged state it gets velocity from the filter, not the
+  truth. So `servo_gt_cam` − `servo_depth` is the cost of the classical
+  perception step (detection errors and occlusion) with the camera's
+  timing held equal.
 - **`blind`:** the same servo driving to a fixed pose and waiting. The pose
   uses only what a controller may know without looking (the nominal
   meeting point and the direction of the partner's base) plus the best
@@ -223,25 +250,25 @@ pixel policy's result; all run through `run_trial` on the paired seeds
   | `servo` | 11/12 (1 collision) | 11/12 (1 timeout) |
   | `servo_depth` | 0/12 (3 contacts > 15° off, 8 collisions, 1 timeout) | 3/12 (9 collisions) |
   | `servo_gt` | 10/12 (1 contact > 15° off, 1 collision) | 11/12 (1 timeout) |
+  | `servo_gt_cam` | 8/12 (4 collisions) | 9/12 (3 collisions) |
 
   Meeting poses vary too much to guess: over the 30 training scenarios
   the blind prior is fitted on, our meeting palm face lies 2–14 cm from the
   nominal point, and finger directions differ by up to 179° between
   scenarios (**E**), against tolerances of 5 cm and 15°. So
   the task needs perception. But with a good pose estimate, a simple
-  reactive servo nearly always daps. Two consequences, both open
-  decisions (section 11):
+  reactive servo nearly always daps. Two consequences:
   - Success does not require timing. The servo's contacts came 1.6 s early
     to 0.6 s late against the partner's meeting time, and about a third
     happened after the partner's palm had stopped. Timing is scored
-    (`time_err`, the loss) but not required.
+    (`time_err`) but neither required nor in the loss.
   - The stand-in sensor (no latency, no occlusion) makes the classical
     baseline strong. On the student's depth frames the same servo mostly
     collides hand on hand. Most of the gap is the perception: fed the true
-    palm pose at the camera's capture times instead (one frame late, same
-    0.1 s coast), it daps 8/12 and 9/12, and 7/12 and 8/12 when given it
-    only on frames where at least 15 partner points lie within 10 cm of
-    the palm (**E**, scratch diagnostic on the same validation seeds).
+    palm pose at the camera's capture times instead (`servo_gt_cam`), it
+    daps 8/12 and 9/12, and 7/12 and 8/12 when given it only on frames
+    where at least 15 partner points lie within 10 cm of the palm (**E**,
+    the latter a scratch diagnostic on the same validation seeds).
     Camera timing and visibility cost a few successes; the perception
     step costs most of the rest. On the frames of 16 `servo` trials on training scenarios,
     65% of frames give a fix; of the fixes, 84% have the palm normal within
@@ -696,7 +723,7 @@ policy's input.
   timing, tolerances and preset (checked), records the trial's ground-truth
   log, and scores it with `dap.scoring.evaluate` and the same live/offline
   agreement check as `run_trial`. Rows have the same fields and covariates
-  as the planners', so `scripts/analyze.py` compares them on paired seeds.
+  as the baselines', so `scripts/analyze.py` compares them on paired seeds.
   A constant-velocity motion scored this way gives the same row as through
   `run_trial` (tested). A policy crash is a trial outcome, as for
   controllers. Privileged policies are refused unless explicitly allowed (a
@@ -740,17 +767,14 @@ speed.
 
 | Config | Question | Conditions | Seeds |
 | --- | --- | --- | --- |
-| `smoke` | plumbing | replan | validation 0–2 |
+| `smoke` | plumbing | `servo` | validation 0–2 |
 | `first_look`, `first_look_wide` | do the baselines work? (section 1b) | a baseline | validation 0–11 |
-| `replan_vs_once` | H1: does replanning beat planning once? | {once, replan} × noise {0.5, 1, 2} | evaluation 1000–1149 |
-| `speed_limits` | H2: how does success fall with partner speed? | replan | evaluation 1000–1299 |
 
-H1 and H2 belong to the trajectory planner, which is no longer the
-project's focus; Phase 2 replaces them with perception experiments
-(`docs/phase2_plan.md`).
-
-`run_experiment.py --controller hold|blind|servo|servo_depth|servo_gt|oracle` runs the
-baselines and references (section 1b) on the same seeds.
+The evaluation configs come with Phase 2 (`docs/phase2_plan.md`, item 8).
+Without `--controller`, `run_experiment.py` runs each condition's own
+controller (`Condition.planner`, a baseline name); `--controller
+hold|blind|servo|servo_depth|servo_gt|servo_gt_cam|oracle` runs one
+baseline or reference (section 1b) on the config's seeds instead.
 
 **Seed splits** (`dap.experiment.SPLITS`). Three splits, each with its own
 streams, and each used for one thing:
@@ -820,8 +844,9 @@ streams, and each used for one thing:
 (α = 0.05) to detect a 10-point difference in success rate when about 20% of
 seeds are discordant (Connor 1987 sample-size formula: n ≈ 155). With 300
 seeds over five 0.15 m/s bins (about 60 per bin), each bin's 95% Wilson
-interval has a half-width of at most about 0.12. These are planning numbers; the
-discordance rate is unknown until the planner exists.
+interval has a half-width of at most about 0.12. These are planning numbers;
+Phase 2 fixes its evaluation seed counts from validation pilot rates
+(`docs/phase2_plan.md`, item 8).
 
 ## 10. Methodology notes
 
@@ -837,7 +862,7 @@ discordance rate is unknown until the planner exists.
   it.** `NoisyPoseSensor` gives ground-truth palm position, normal and
   finger direction plus i.i.d. Gaussian noise (5 mm, 2°), at 100 Hz, with no
   latency, no dropouts
-  and no occlusion. It feeds only the `state` modes, the planner
+  and no occlusion. It feeds only the `state` modes, the controller
   interface and `servo` (`servo_depth` perceives from depth instead). The
   end-to-end policy (`pixels` mode, section 8) sees only its
   own arm state and the head camera's depth frames (30 fps, one frame of
@@ -852,7 +877,8 @@ discordance rate is unknown until the planner exists.
   student's newest frame (section 8), so teacher vs. student measures the
   cost of perceiving from depth, not of latency. `servo_gt` and the
   stand-in sensor have no latency, so they are not latency-matched to the
-  teacher.
+  teacher; `servo_gt_cam` is, though it estimates velocity with its filter
+  where the teacher gets the true velocity (section 1b).
 - **Speed is confounded with geometry at both ends** (section 4). Success
   vs. speed is observational; if needed, adjust for layout covariates
   (`layout_*`, `reachable_in_time`, all stored per trial), e.g. by logistic
@@ -866,20 +892,14 @@ discordance rate is unknown until the planner exists.
 
 ## 11. Open decisions
 
-- **Does a dap need timing?** Success is "the palms touch antiparallel".
-  The reactive servo meets that with contacts from 1.6 s early to 0.6 s
-  late, about a third after the partner's palm has stopped (section 1b).
-  Options: keep timing as a score only, or require contact within a window
-  around the partner's meeting time or while the partner is still moving.
 - **What makes the task hard for a good controller?** With the stand-in
   sensor, the servo nearly always succeeds on both presets; with
   perception from the student's depth frames it rarely does (section 1b).
-  Other candidates: faster partners, mid-course switches, a timing
-  requirement.
-
-- **Loss weights and the success tolerance.** `rot_tol` (15°) and the loss
-  scales and weights (`LossWeights`) are placeholders. Because every
-  component is stored per trial, settling them later only re-scores.
+  Other candidates: faster partners, mid-course switches.
+- **Settled:** the success tolerance, the timing question and the loss
+  weights (section 1b, 2026-11-22). Every component is stored per trial,
+  so a later change would only re-score, but it would need fresh
+  evaluation seeds (section 9).
 - **Camera position.** Centered behind our base gives realistic
   self-occlusion; an offset of about 0.2–0.3 m sideways would reduce it.
   Should camera position be an experimental axis?

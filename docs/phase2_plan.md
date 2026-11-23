@@ -5,8 +5,8 @@ whoever picks up Phase 2. It says what Phase 1 established, what Phase 2 is
 for, what to build in what order, how it will be evaluated, and what the
 team still has to decide.
 
-**The focus is perception.** The trajectory planner (`dap/planner.py`,
-`dap/meeting.py`) and the experiments built around it (H1, replanning vs.
+**The focus is perception.** The trajectory planner (stubs in
+`dap/planner.py` and `dap/meeting.py`, removed in item 1) and the experiments built around it (H1, replanning vs.
 planning once; H2, success vs. partner speed) are no longer part of the
 project. Phase 2 asks whether a policy that learns its own perception from
 the head camera's depth frames meets the partner better than a classical
@@ -23,7 +23,7 @@ parameter (`docs/setup.md`):
 - **Camera:** a D435-style depth camera at 30 fps with one frame of latency
   and modelled noise.
 - **Scoring:** from ground truth only. Success means the palms touch
-  antiparallel within 15° (a placeholder).
+  antiparallel within 15°, with no timing requirement (settled in item 0).
 - **Seeds:** paired across methods and split into train, validation and
   evaluation streams (`docs/setup.md` section 9).
 - **RL environment:** `dap/PalmMeet-v0` with a `pixels` mode (the student),
@@ -37,7 +37,7 @@ The baseline ladder on validation seeds 0–11 (`first_look`,
 | --- | --- | --- | --- |
 | `blind` | nothing (a fixed pose fit on training scenarios) | 0/12 | 0/12 |
 | `servo_depth` | **classical perception on the depth frames** (`dap/perception.py`) | 0/12 | 3/12 |
-| servo, true pose at camera timing (scratch diagnostic) | ground truth, 30 Hz, one frame late | 8/12 | 9/12 |
+| `servo_gt_cam` | ground truth, 30 Hz, one frame late | 8/12 | 9/12 |
 | `servo_gt` | ground truth, current, 100 Hz | 10/12 | 11/12 |
 | `servo` | stand-in pose sensor (noise only, no latency or occlusion) | 11/12 | 11/12 |
 
@@ -165,8 +165,8 @@ validation split exists so that they can be iterated freely.
 
 | Decision | Default proposed here | Why it matters |
 | --- | --- | --- |
-| Scoring: tolerance, timing, loss weights | Keep 15°, no timing requirement, weights as now | Defines success for H1 and shapes the reward |
-| Training presets | `nominal` only; `wide` stays out of distribution | Q3 is only a generalization test if `wide` is unseen |
+| Scoring: tolerance, timing, loss weights | **Decided 2026-11-22:** 15°, no timing requirement, timing unweighted in the loss (`docs/setup.md` section 1b) | Defines success for H1 and shapes the reward |
+| Training presets | **Decided 2026-11-22:** `nominal` only; `wide` stays out of distribution | Q3 is only a generalization test if `wide` is unseen |
 | Student memory | 3-frame stack first, GRU if validation shows the need | Mid-course switches may need memory beyond 3 frames |
 | Teacher information | Latency-matched current pose and velocity only | Richer inputs widen the imitation gap |
 | Is `servo_depth` frozen? | Yes, as documented | Tuning it further on validation seeds is allowed but must be recorded, and it is not the project's focus |

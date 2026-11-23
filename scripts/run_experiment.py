@@ -1,10 +1,9 @@
 """Run a named experiment sweep, one JSON line per trial.
 
     python scripts/run_experiment.py smoke --dry-run
-    python scripts/run_experiment.py replan_vs_once --workers 4
-    python scripts/run_experiment.py speed_limits --seeds 5      # quick look
-    python scripts/run_experiment.py smoke --controller servo   # a baseline (dap/baselines.py)
-    python scripts/run_experiment.py replan_vs_once --policy mypkg.policies:make --policy-name student
+    python scripts/run_experiment.py smoke                      # the config's own controllers
+    python scripts/run_experiment.py first_look --controller servo_depth --workers 4
+    python scripts/run_experiment.py first_look --policy mypkg.policies:make --policy-name student
 
 Writes results/<name>/config.json and results/<name>/trials.jsonl. Re-running
 skips trials already completed in trials.jsonl, so an interrupted sweep
@@ -27,15 +26,16 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from dap.experiment import CONFIGS, Condition  # noqa: E402
 
-BASELINES = ("hold", "blind", "servo", "servo_depth", "servo_gt", "oracle")  # dap/baselines.py
+BASELINES = ("hold", "blind", "servo", "servo_depth", "servo_gt", "servo_gt_cam",
+             "oracle")  # dap/baselines.py
 
 
 def _factory(name):
     from dap import baselines
-    from dap.trial import default_controller
 
-    return {"planner": default_controller, **{n: getattr(baselines, f"{n}_factory")
-                                               for n in BASELINES}}[name]
+    if name not in BASELINES:
+        raise ValueError(f"unknown controller {name!r}; expected one of {BASELINES}")
+    return getattr(baselines, f"{name}_factory")
 
 
 def _load_policy_factory(spec):
@@ -61,9 +61,10 @@ def _run_one(args):
 
             policy = _load_policy_factory(policy_spec)(cfg, cond)
             return run_policy_trial(cfg, cond, seed, policy).to_dict()
-        from dap.baselines import SERVO_DEPTH_CAMERA
+        from dap.baselines import CAMERA_BASELINES, SERVO_DEPTH_CAMERA
 
-        camera = SERVO_DEPTH_CAMERA if controller == "servo_depth" else None
+        controller = controller or cond.planner
+        camera = SERVO_DEPTH_CAMERA if controller in CAMERA_BASELINES else None
         return run_trial(cfg, cond, seed, camera=camera,
                          controller_factory=_factory(controller)).to_dict()
     except Exception as e:
@@ -123,9 +124,9 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="list trials, run nothing")
     ap.add_argument("--fail-fast", action="store_true")
     ap.add_argument("--fresh", action="store_true", help="ignore existing trials.jsonl")
-    ap.add_argument("--controller", default="planner", choices=["planner", *BASELINES],
-                    help="baselines and references (dap/baselines.py) replace the config's "
-                         "planners; results go to <name>_<controller>")
+    ap.add_argument("--controller", choices=BASELINES,
+                    help="a baseline or reference (dap/baselines.py) replaces the config's "
+                         "controllers; results go to <name>_<controller>")
     ap.add_argument("--policy", metavar="MODULE:FUNCTION",
                     help="evaluate a learned policy (dap/policy_eval.py) instead of a "
                          "controller; FUNCTION(cfg, cond) returns the policy")
@@ -137,7 +138,7 @@ def main():
     if args.seeds is not None:
         cfg = dataclasses.replace(cfg, n_seeds=args.seeds)
     if args.policy is not None:
-        if args.controller != "planner":
+        if args.controller is not None:
             raise SystemExit("--policy and --controller are exclusive")
         cfg = dataclasses.replace(cfg, name=f"{cfg.name}_{args.policy_name}",
                                   planners=(args.policy_name,))
@@ -146,9 +147,13 @@ def main():
         if policy.obs_mode == "privileged":
             raise SystemExit("a privileged policy sees ground truth: evaluate it as a reference "
                              "with dap.policy_eval.run_policy_trial(..., allow_privileged=True)")
-    elif args.controller != "planner":
+    elif args.controller is not None:
         cfg = dataclasses.replace(cfg, name=f"{cfg.name}_{args.controller}",
                                   planners=(args.controller,))
+
+    if args.policy is None:
+        for cond in cfg.conditions():
+            _factory(args.controller or cond.planner)  # fail before the sweep starts
 
     out_dir = args.out / cfg.name
     trials_path = out_dir / "trials.jsonl"

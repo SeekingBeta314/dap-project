@@ -10,10 +10,12 @@ dap/planner.py and are scored by dap.trial.run_trial like anything else.
 | servo      | the stand-in pose sensor        | classical reactive baseline            |
 | servo_depth| head-camera depth (perception)  | the servo on the student's input       |
 | servo_gt   | ground truth (current state)    | reference: the servo with perfect state|
+| servo_gt_cam | ground truth at camera timing | reference: servo_depth with perfect    |
+|            |                                 | perception (the teacher's counterpart) |
 | oracle     | ground truth incl. the future   | reference: knows the meeting in advance|
 
-The oracle and servo_gt read the scenario, so they are references, not
-methods. servo_depth needs the head camera:
+The oracle, servo_gt and servo_gt_cam read the scenario, so they are
+references, not methods. servo_depth and servo_gt_cam need the head camera:
 
     run_trial(cfg, cond, seed, camera=SERVO_DEPTH_CAMERA, controller_factory=servo_depth_factory)
 """
@@ -24,6 +26,7 @@ import numpy as np
 from pydrake.all import JacobianWrtVariable, RotationMatrix
 
 from dap.camera import HeadCameraConfig
+from dap.estimator import PalmEstimator
 from dap.partner import min_jerk
 from dap.scene import OURS, P_PALM_FACE
 
@@ -154,6 +157,25 @@ class DepthServo(DiffIKServo):
         return super().step(t, q, estimator)
 
 
+class TruthAtCapture:
+    """Stands in for dap.perception.DepthPalmTracker with perfect perception
+    (reference only): at each delivered frame's capture time it feeds the
+    partner palm's true pose into the same filter servo_depth uses, and
+    ignores the image. So it has the camera's timing (30 fps, one frame
+    late) and the filter's velocity estimate, but no detection errors and
+    no occlusion. The teacher instead gets the true velocity at capture."""
+
+    def __init__(self, motion):
+        from dap.perception import NORMAL_ALPHA, POS_NOISE
+
+        self.motion = motion
+        self.estimator = PalmEstimator(pos_noise=POS_NOISE, normal_alpha=NORMAL_ALPHA)
+
+    def observe(self, t, depth, q_ours):
+        R = self.motion.rotation(t)
+        self.estimator.update(t, self.motion.p(t), R[:, 2], R[:, 0])
+
+
 # -- what each servo sees ----------------------------------------------------
 
 LOOKAHEAD = 0.1  # s, aim where the partner palm will be one servo time constant ahead
@@ -262,3 +284,15 @@ def servo_depth_factory(cfg, cond, scenario):
     if camera is None:
         raise ValueError("servo_depth needs the head camera: run_trial(..., camera=...)")
     return DepthServo(DepthPalmTracker(scenario.layout, camera))
+
+
+def servo_gt_cam_factory(cfg, cond, scenario):
+    """servo_depth's servo on the true palm pose at the camera's capture
+    times (reference only; reads the scenario)."""
+    if scenario.scene.camera_cfg is None:
+        raise ValueError("servo_gt_cam needs the head camera: run_trial(..., camera=...)")
+    return DepthServo(TruthAtCapture(scenario.partner))
+
+
+# Baselines that take the head camera's frames (run_trial(camera=SERVO_DEPTH_CAMERA)).
+CAMERA_BASELINES = ("servo_depth", "servo_gt_cam")

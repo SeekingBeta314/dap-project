@@ -10,7 +10,8 @@ from dap.metrics import TrialResult
 
 
 def test_config_expands_to_full_paired_grid():
-    cfg = CONFIGS["replan_vs_once"]
+    cfg = ExperimentConfig(name="grid", planners=("servo", "servo_depth"),
+                           noise_scales=(0.5, 1.0, 2.0), n_seeds=20)
     trials = list(cfg.trials())
     assert len(trials) == cfg.n_trials() == 2 * 3 * cfg.n_seeds
     # Every condition runs on exactly the same seeds.

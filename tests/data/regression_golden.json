@@ -42,6 +42,10 @@
  "trial/nominal/servo_gt/0/row": "cfd4bdfdb0b434cf89c4",
  "trial/nominal/servo_gt/1/log": "773d2d36e4f3f3a658c3",
  "trial/nominal/servo_gt/1/row": "6b712905dc7b3ea566cd",
+ "trial/nominal/servo_gt_cam/0/log": "408332abf431ee69b78b",
+ "trial/nominal/servo_gt_cam/0/row": "6f0a8c6b55e6c77ad3f8",
+ "trial/nominal/servo_gt_cam/1/log": "689c7a16859f385e01ba",
+ "trial/nominal/servo_gt_cam/1/row": "bf4da4657f6afac8136f",
  "trial/wide/servo/0/log": "fe5f4a567f4d13c2d181",
  "trial/wide/servo/0/row": "1a36b7987b63f4bc0a83"
 }

@@ -32,15 +32,14 @@ Perception pipeline (the `servo_depth` baseline): [docs/perception_pipeline.md](
 | `dap/bank.py` | Training scenario bank: sampled once from training seeds, rebuilt exactly in ~0.1 s | done |
 | `dap/policy_eval.py` | Scores a learned policy on experiment seeds like any trial | done |
 | `dap/estimator.py` | Constant-acceleration Kalman filter + palm-normal and finger-direction filters | done (first pass) |
-| `dap/meeting.py` | Meeting time + palm pose via IK sweep | TODO |
-| `dap/planner.py` | Controller contract (`ControllerModel`, `reset`/`step`); `KinematicTrajectoryOptimization` + replanning loop | contract done; planner TODO |
-| `dap/baselines.py` | Baselines: hold, blind (fixed pose), diff-IK servo on the stand-in sensor, on depth perception or on ground truth; oracle reference | done |
+| `dap/planner.py` | Controller contract (`ControllerModel`, `reset`/`step`) | done |
+| `dap/baselines.py` | Baselines: hold, blind (fixed pose), diff-IK servo on the stand-in sensor, on depth perception, on ground truth or on ground truth at camera timing; oracle reference | done |
 | `dap/perception.py` | Label-free partner-palm perception from head-camera depth (for `servo_depth`) | done |
 | `dap/scoring.py` | The one definition of contact, collision, success, scores and the (vectorized) loss | done |
 | `dap/metrics.py` | Per-trial result record (harness measurements only) | done |
 | `dap/stats.py` | Wilson intervals, exact McNemar, paired bootstrap, Holm | done |
-| `dap/experiment.py` | Conditions (planner x sensor noise), seed splits (train / val / eval), named configs (`smoke`, `first_look`, H1, H2) | done |
-| `dap/trial.py` | Causal kinematic trial loop: arm limits enforced, ground truth logged, scored afterwards | done; needs the controller |
+| `dap/experiment.py` | Conditions (controller x sensor noise), seed splits (train / val / eval), named configs (`smoke`, `first_look`, `first_look_wide`) | done |
+| `dap/trial.py` | Causal kinematic trial loop: arm limits enforced, ground truth logged, scored afterwards | done |
 | `scripts/show_scene.py` | View a sampled scenario in Meshcat, animate it, or save head-camera depth | done |
 | `scripts/run_experiment.py` | Run a config, append to `results/<name>/trials.jsonl` | done |
 | `scripts/analyze.py` | Paired analysis: rates with Wilson CIs, McNemar, paired bootstrap of the loss, success vs. partner speed | done |
@@ -72,7 +71,7 @@ activate anything:
 ```bash
 make test                          # pytest
 make scene SEED=0                  # Meshcat view of a sampled scenario (SCENARIO=fixed|nominal|wide)
-make dry-run CONFIG=replan_vs_once # list an experiment's conditions
+make dry-run CONFIG=first_look     # list an experiment's conditions
 make experiment CONFIG=smoke       # run a sweep
 ```
 
@@ -114,7 +113,7 @@ module:function --policy-name <label>`). No reward or training yet: pass
 
 ## Experiments
 
-Each named config in `dap/experiment.py` is a grid of conditions (planner x
+Each named config in `dap/experiment.py` is a grid of conditions (controller x
 sensor-noise scale) times seeds, on a scenario preset
 (`ExperimentConfig.scenario`, default `nominal`). Every condition reuses the
 same seeds, and a seed fixes the whole scenario (layout, partner path and
@@ -130,33 +129,30 @@ realized speed.
 contact (the palm boxes touch, from the front) or collision. Success =
 contact with the palms antiparallel (rotation error ≤ 15°). Position, alignment, timing and contact speed are
 continuous scores, and `dap.scoring.dap_loss` combines them over a whole
-results table (placeholder weights). Everything is computed from the
-ground-truth log; nothing the controller reports is scored.
+results table (timing and contact speed reported, unweighted). The tolerance,
+the timing question and the weights were settled for Phase 2 (docs/setup.md
+section 1b). Everything is computed from the ground-truth log; nothing the
+controller reports is scored.
 
 | Config | Tests | Conditions |
 | --- | --- | --- |
-| `smoke` | Plumbing | replan only, 3 validation seeds |
+| `smoke` | Plumbing | `servo`, 3 validation seeds |
 | `first_look`, `first_look_wide` | Do the baselines work? | one baseline, 12 validation seeds |
-| `replan_vs_once` | H1 | planner {once, replan} x noise {0.5, 1, 2}, 150 evaluation seeds |
-| `speed_limits` | H2 | replan, 300 evaluation seeds, analysed by partner speed |
 
-H1 and H2 test the trajectory planner, which is no longer the project's focus;
-Phase 2 replaces them with perception experiments ([docs/phase2_plan.md](docs/phase2_plan.md)).
+The evaluation configs come with Phase 2 ([docs/phase2_plan.md](docs/phase2_plan.md), item 8).
 
 ```bash
-python scripts/run_experiment.py smoke --dry-run           # list conditions, run nothing
-python scripts/run_experiment.py replan_vs_once --workers 4
-python scripts/run_experiment.py smoke --controller servo  # a baseline, same seeds
-python scripts/analyze.py results/replan_vs_once           # summary, paired tests, by speed
+python scripts/run_experiment.py smoke --dry-run                                  # list conditions, run nothing
+python scripts/run_experiment.py smoke                                            # the config's own controller
+python scripts/run_experiment.py first_look --controller servo_depth --workers 4  # a baseline, same seeds
+python scripts/analyze.py results/first_look_servo_depth                          # summary, paired tests, by speed
 ```
 
 Sweeps resume where they left off (`--fresh` to start over); crashed trials
 are logged with their traceback in `error` and counted by the analysis
-(`--fail-fast` to stop instead). The trial loop calls
-`ReplanningController.reset/step` in `dap/planner.py`, so the planner configs
-don't run end to end until that's implemented; `--controller
-hold|blind|servo|servo_depth|servo_gt|oracle` runs the baselines now. The success tolerance and loss weights
-are placeholders until we settle them.
+(`--fail-fast` to stop instead). `--controller
+hold|blind|servo|servo_depth|servo_gt|servo_gt_cam|oracle` picks the baseline or
+reference (docs/setup.md section 1b).
 
 ## Working together
 

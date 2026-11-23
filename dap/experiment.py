@@ -21,7 +21,7 @@ from dap.scoring import Tolerances
 
 @dataclass(frozen=True)
 class Condition:
-    planner: str  # "once" | "replan" | a baseline name
+    planner: str  # the controller (a baseline name, dap/baselines.py) or a policy label
     noise_scale: float  # multiplies the stand-in sensor's noise std
 
     def key(self):
@@ -31,7 +31,7 @@ class Condition:
 @dataclass
 class ExperimentConfig:
     name: str
-    planners: tuple = ("once", "replan")
+    planners: tuple = ("servo",)  # Condition.planner values
     noise_scales: tuple = (1.0,)
     n_seeds: int = 50
     # Seed split (SPLITS): "eval" for reported results, "val" for checks
@@ -44,10 +44,8 @@ class ExperimentConfig:
     dt: float = 0.01  # s, sensor + control period
     t_extra: float = 1.0  # s, keep simulating past the end of the partner's motion
 
-    replan_hz: float = 10.0
-
-    # How a dap is judged (dap.scoring). Placeholders (Ours) until the team
-    # settles them.
+    # How a dap is judged (dap.scoring; settled for Phase 2, docs/setup.md
+    # section 1b).
     tolerances: Tolerances = Tolerances()
 
     notes: str = ""
@@ -136,7 +134,6 @@ CONFIGS = {
     # Plumbing check: a handful of trials end to end.
     "smoke": ExperimentConfig(
         name="smoke",
-        planners=("replan",),
         n_seeds=3,
         split="val",
         notes="End-to-end plumbing check, not a result.",
@@ -144,35 +141,15 @@ CONFIGS = {
     # Do the baselines work? (docs/setup.md section 1b; run with --controller.)
     "first_look": ExperimentConfig(
         name="first_look",
-        planners=("replan",),
         n_seeds=12,
         split="val",
         notes="Baseline check on validation seeds, not a result.",
     ),
     "first_look_wide": ExperimentConfig(
         name="first_look_wide",
-        planners=("replan",),
         n_seeds=12,
         split="val",
         scenario="wide",
         notes="Baseline check on validation seeds, not a result.",
-    ),
-    # H1: replanning beats planning once. 150 paired seeds per noise level
-    # give ~80% power (alpha 0.05, McNemar) for a 10-point success-rate
-    # difference when ~20% of pairs are discordant (docs/setup.md).
-    "replan_vs_once": ExperimentConfig(
-        name="replan_vs_once",
-        planners=("once", "replan"),
-        noise_scales=(0.5, 1.0, 2.0),
-        n_seeds=150,
-        notes="H1. Paired seeds across planners; McNemar per noise level.",
-    ),
-    # H2: success falls with partner speed once our joint velocity limits
-    # bind. One planner, many seeds, analysed against realized partner speed.
-    "speed_limits": ExperimentConfig(
-        name="speed_limits",
-        planners=("replan",),
-        n_seeds=300,
-        notes="H2. Success / loss vs. realized partner peak speed (binned).",
     ),
 }
