@@ -79,6 +79,12 @@ class DiffIKServo:
         along the normal. The closing phase latches (switching back whenever
         the alignment check fails makes the arm chatter at the boundary);
         its target still tracks the partner.
+      - with `latch=False` (the ServoExpert, dap.teacher): no latch; it
+        closes whenever our palm face is within `align_pos` of the partner's
+        normal line in-plane, within `align_deg`, and no further out than
+        `standoff + align_pos`. Advancing along the normal keeps that true,
+        so it does not chatter, and the command is a function of the state
+        alone (which imitation needs). Ours.
       - with `standoff=None`: exactly at the partner palm face (used by the
         blind baseline to sit at a fixed pose).
     The partner's velocity is fed forward. Joint velocities are scaled down
@@ -87,8 +93,9 @@ class DiffIKServo:
     """
 
     def __init__(self, partner_fn, standoff=0.05, close=-0.02, align_pos=0.02, align_deg=10.0,
-                 gain=10.0, damping=0.05):
+                 gain=10.0, damping=0.05, latch=True):
         self.partner_fn = partner_fn
+        self.latch = latch
         self.standoff, self.close = standoff, close
         self.align_pos, self.align_deg = align_pos, align_deg
         self.gain, self.damping = gain, damping
@@ -116,7 +123,12 @@ class DiffIKServo:
             p_t = p_p
         else:
             p_far = p_p + self.standoff * n
-            if not self.closing:
+            if not self.latch:
+                d = p_o - p_p
+                self.closing = (np.linalg.norm(d - (d @ n) * n) < self.align_pos
+                                and np.degrees(aa.angle()) < self.align_deg
+                                and d @ n < self.standoff + self.align_pos)
+            elif not self.closing:
                 self.closing = (np.linalg.norm(p_far - p_o) < self.align_pos
                                 and np.degrees(aa.angle()) < self.align_deg)
             p_t = p_p + self.close * n if self.closing else p_far

@@ -32,6 +32,7 @@ Code map:
 | Gymnasium env | `dap/envs/` |
 | Training scenario bank | `dap/bank.py` |
 | Scoring a learned policy | `dap/policy_eval.py` |
+| Teacher reward, PPO teacher | `dap/reward.py`, `dap/teacher.py` (`docs/teacher_design.md`) |
 
 ---
 
@@ -744,8 +745,10 @@ policy's input.
   controllers. Privileged policies are refused unless explicitly allowed (a
   reference, not a method). From the command line:
   `scripts/run_experiment.py <config> --policy module:function --policy-name <label>`.
-- **Reward:** `reward_fn(info) -> float`, which returns 0 when not given. No
-  reward shaping yet. `info` carries ground truth: the event and success,
+- **Reward:** `reward_fn(info) -> float`, which returns 0 when not given.
+  The teacher's reward is the `dap.reward.DapReward` wrapper (the
+  evaluation loss at the episode's end, potential-based shaping, an
+  action-rate penalty; `docs/teacher_design.md`). `info` carries ground truth: the event and success,
   the section 1a geometry (`normal_gap`, `in_plane_offset`, `rot_err_deg`,
   `angle_err_deg`, `finger_err_deg`), face-center distance, clearance,
   palm–palm distance, arm distance, partner pose and velocity (current), the

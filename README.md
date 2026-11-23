@@ -28,7 +28,11 @@ Perception pipeline (the `servo_depth` baseline): [docs/perception_pipeline.md](
 | `dap/ik.py` | Single-arm IK helper | done |
 | `dap/camera.py` | D435-like head camera (848x480, 58 deg vFOV, 30 fps) + frame-rate/latency buffer | done |
 | `dap/depth_noise.py` | D435-style depth noise (disparity noise, jitter, fixed pattern, dropout, shadow, holes) | done |
-| `dap/envs/` | Gymnasium env `dap/PalmMeet-v0`: `pixels` (own arm + depth frame stack), `privileged` (training only), `state`, `state+depth`; reward hook only | done; no training |
+| `dap/envs/` | Gymnasium env `dap/PalmMeet-v0`: `pixels` (own arm + depth frame stack), `privileged` (training only), `state`, `state+depth`; reward hook | done |
+| `dap/reward.py` | Training reward: the evaluation loss at the episode's end, potential-based shaping, action-rate penalty | done |
+| `dap/teacher.py` | PPO teacher on the privileged state, with per-worker rollout collection (`ParallelPPO`), a warm start and DAgger toward the servo expert (`ServoExpert`, `warm_start`, `dagger`), optional kickstarting, and a loader for scoring and DAgger labels | done; in training |
+| `scripts/train_teacher.py` | Train the teacher on the bank (`--warm-start N` to start from the expert, `--dagger-rounds R`, `--kick-coef`); checkpoints scored on validation seeds | done |
+| `scripts/check_teacher.py` | The teacher's bar check: a checkpoint, `servo_gt_cam` and the servo expert on validation seeds 100–299 (`teacher_bar`), analysed by `analyze.py` | done |
 | `dap/bank.py` | Training scenario bank: sampled once from training seeds, rebuilt exactly in ~0.1 s | done |
 | `dap/policy_eval.py` | Scores a learned policy on experiment seeds like any trial | done |
 | `dap/estimator.py` | Constant-acceleration Kalman filter + palm-normal and finger-direction filters | done (first pass) |
@@ -108,8 +112,10 @@ Banks hold training scenarios (seeds disjoint from the experiments') so a
 reset takes ~0.1 s instead of ~1 s. Trained policies are scored on the
 experiment seeds by the same scorer as every controller
 (`dap/policy_eval.py`, or `scripts/run_experiment.py <config> --policy
-module:function --policy-name <label>`). No reward or training yet: pass
-`reward_fn=lambda info: ...`. See docs/setup.md section 8.
+module:function --policy-name <label>`). The env's own reward is a hook
+(`reward_fn`); the teacher's reward and training are in `dap/reward.py`,
+`dap/teacher.py` and `scripts/train_teacher.py` (design and sources:
+[docs/teacher_design.md](docs/teacher_design.md)). See docs/setup.md section 8.
 
 ## Experiments
 

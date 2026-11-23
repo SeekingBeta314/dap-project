@@ -152,4 +152,13 @@ CONFIGS = {
         scenario="wide",
         notes="Baseline check on validation seeds, not a result.",
     ),
+    # The teacher against servo_gt_cam (docs/teacher_design.md section 2), on
+    # validation seeds disjoint from the 0-99 its checkpoint was chosen on.
+    "teacher_bar": ExperimentConfig(
+        name="teacher_bar",
+        n_seeds=200,
+        split="val",
+        first_seed=100,
+        notes="Teacher bar check on validation seeds 100-299, not a result.",
+    ),
 }
