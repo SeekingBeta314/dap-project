@@ -137,6 +137,15 @@ def main():
     for family, names in FAMILIES.items():
         summaries[family] = [read(name, 300, f"val-{name}.json") for name in names]
         winners.append(best(summaries[family]))
+    shortlist = {"nominees": [{"name": n, "sha256": _digest(runs / f"{n}.pt")} for n in winners],
+                 "validation_seeds_inclusive": [400, 463]}
+    frozen = runs / "confirmation-shortlist.json"
+    if not frozen.exists() and args.stage == "confirm":
+        tmp = frozen.with_suffix(".tmp")
+        tmp.write_text(json.dumps(shortlist, indent=2) + "\n")
+        tmp.replace(frozen)
+    if not frozen.exists() or json.loads(frozen.read_text()) != shortlist:
+        raise ValueError("validation nominees differ from the frozen confirmation shortlist")
     confirm = []
     for name in winners:
         filename = f"confirm-{name}.json"
@@ -158,6 +167,7 @@ def main():
     tmp = args.checkpoint.with_suffix(".tmp")
     shutil.copyfile(src, tmp)
     tmp.replace(args.checkpoint)
+    shutil.copyfile(frozen, archive / frozen.name)
     record = {"rule": "Most aligned contacts, then smaller mean benchmark loss, then listed order.",
               "split": "validation", "development_seeds_inclusive": [300, 363],
               "initial_diagnostic": diagnostic, "families": summaries,
