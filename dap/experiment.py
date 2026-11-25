@@ -130,7 +130,16 @@ def val_rngs(seed):
 SPLITS = {"train": train_rngs, "val": val_rngs, "eval": trial_rngs}
 
 
+PERCEPTION_METHODS = ("student", "servo_depth", "teacher", "servo_gt_cam",
+                      "servo_gt", "servo", "blind", "oracle")
+
+
 CONFIGS = {
+    **{f"perception_{preset}": ExperimentConfig(
+        name=f"perception_{preset}", planners=PERCEPTION_METHODS,
+        scenario=preset, n_seeds=172, first_seed=1000,
+        notes="Frozen paired evaluation. See docs/perception_protocol.md.",
+    ) for preset in ("nominal", "wide")},
     # Plumbing check: a handful of trials end to end.
     "smoke": ExperimentConfig(
         name="smoke",
