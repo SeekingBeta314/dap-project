@@ -9,6 +9,8 @@ truth at capture time. Only the offline loss can access that truth.
 
 import argparse
 import hashlib
+import fcntl
+import os
 import json
 import sys
 from concurrent.futures import ProcessPoolExecutor
@@ -85,7 +87,7 @@ def _collect_episode(seed):
         if terminated or truncated:
             break
     dest = _directory / f"{seed:08d}.npz"
-    tmp = dest.with_suffix(".tmp.npz")
+    tmp = dest.with_suffix(f".{os.getpid()}.tmp.npz")
     np.savez_compressed(tmp, depth=np.asarray(frames, np.int16).reshape(-1, 3, 60, 106),
                         privileged=np.asarray(privileged, np.float32).reshape(-1, 43),
                         scenario_id=str(info["scenario_id"]), success=info["success"])
@@ -100,12 +102,17 @@ def collect(args):
     spec = {"format": 1, "split": "train", "preset": "nominal",
             "bank_sha256": _digest(args.bank) if args.bank else None,
             "rollout": _source(args.rollout, args.checkpoint)}
-    if manifest_path.is_file():
-        stored = json.loads(manifest_path.read_text())
-        if stored["spec"] != spec:
-            raise ValueError(f"training data in {args.out} has different collection settings")
-    else:
-        manifest_path.write_text(json.dumps({"spec": spec, "provenance": provenance()}, indent=2))
+    # Slurm array tasks may create the same corpus simultaneously.
+    with open(args.out / ".manifest.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if manifest_path.is_file():
+            stored = json.loads(manifest_path.read_text())
+            if stored["spec"] != spec:
+                raise ValueError(f"training data in {args.out} has different collection settings")
+        else:
+            tmp = manifest_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"spec": spec, "provenance": provenance()}, indent=2))
+            tmp.replace(manifest_path)
     seeds = [s for s in range(args.first, args.first + args.count)
              if not (args.out / f"{s:08d}.npz").exists()]
     if not seeds:
@@ -149,7 +156,11 @@ def _dataset(dirs):
         if not parts:
             raise ValueError(f"no episodes in {directory}")
         paths.extend(parts)
+        checksum = hashlib.sha256()
+        for p in parts:
+            checksum.update(f"{p.name} {_digest(p)}\n".encode())
         metadata.append({"directory": str(directory), "spec": manifest["spec"],
+                         "sha256_of_named_episode_hashes": checksum.hexdigest(),
                          "episode_seeds": [int(p.stem) for p in parts]})
     # Allocate once after reading small state arrays, so fitting does not
     # require two full copies of the images in RAM.
