@@ -22,7 +22,7 @@ def test_cross_preset_analysis_rebuilds_from_raw_records(tmp_path, monkeypatch):
         name = f"perception_{preset}"
         config = dataclasses.replace(CONFIGS[name], n_seeds=8)
         monkeypatch.setitem(CONFIGS, name, config)
-        specs = {s: freeze_record(preset, "eval", s, {"reference": {"switch": None}}) for s in config.seeds()}
+        specs = {s: freeze_record(preset, "eval", s, {"reference": {"switch": None}, "knot_times": [0., 1.]}) for s in config.seeds()}
         scenario_path = source / "scenarios" / f"{preset}.jsonl.gz"
         scenario_path.parent.mkdir(parents=True, exist_ok=True)
         scenario_path.write_bytes(gzip.compress("".join(json.dumps(r) + "\n" for r in specs.values()).encode()))
@@ -38,7 +38,8 @@ def test_cross_preset_analysis_rebuilds_from_raw_records(tmp_path, monkeypatch):
                 r.update(dict.fromkeys(SCENARIO_FIELDS, .34), scenario_sha256=specs[seed]["sha256"], outcome="collision", collision=True)
                 if method == "student" and (preset == "nominal" or seed < 1007):
                     r.update(outcome="contact", contact=True, collision=False, success=True,
-                             rot_err=2., pos_err=.01, gap=.001, time_err=.05, angle_err=2.,
+                             rot_err=2., pos_err=.01, gap=.001, t_event=1. if seed < 1002 else .85,
+                             time_err=.05, angle_err=2.,
                              finger_err=0., rel_speed=.1)
                 (target / f"{seed}.json").write_text(json.dumps(r))
     built = tmp_path / "output"
@@ -50,6 +51,9 @@ def test_cross_preset_analysis_rebuilds_from_raw_records(tmp_path, monkeypatch):
     assert (built / "figures" / "success.pdf").stat().st_size > 0
     assert r"\label{tab:perception-paired}" in (built / "paired_table.tex").read_text()
     assert list(pd.read_csv(built / "by_switch.csv").n) == [8, 8, 8, 8]
+    motion = pd.read_csv(built / "motion_at_success.csv").query("planner == 'student'")
+    assert list(motion.before_final_knot) == [6, 5]
+    assert list(motion.at_or_after_final_knot) == [2, 2]
     rebuilt = tmp_path / "rebuilt"
     publish(built, rebuilt)
     for f in built.glob("*.csv"):

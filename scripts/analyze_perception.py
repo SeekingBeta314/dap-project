@@ -132,10 +132,14 @@ def outcomes(data):
     return pd.DataFrame(rows)
 
 
-def switch_breakdown(data, cfg, archive):
-    """Exploratory comparison stratified by whether the partner path was generated with a switch."""
-    switched = {s: bool(scene.spec["reference"]["switch"] is not None) for s in cfg.seeds()
-                if (scene := load_frozen_scenario(cfg, s, archive)).spec is not None}
+def describe_trajectories(data, cfg, archive):
+    """Exploratory target switches and timing of aligned contacts relative to the final knot."""
+    switched, stop_times = {}, {}
+    for seed in cfg.seeds():
+        spec = load_frozen_scenario(cfg, seed, archive).spec
+        if spec is not None:
+            switched[seed] = spec["reference"]["switch"] is not None
+            stop_times[seed] = float(spec["knot_times"][-1])
     primary = data[data.planner.isin(("student", "servo_depth"))]
     rows = []
     for (method, flag), g in primary.groupby(["planner", primary.seed.map(switched)]):
@@ -143,7 +147,17 @@ def switch_breakdown(data, cfg, archive):
         lo, hi = wilson(k, n)
         rows.append(dict(planner=method, target_switch=flag, n=n, k=k,
                          success=k/n, success_lo=lo, success_hi=hi))
-    return pd.DataFrame(rows)
+    motion = []
+    for method, g in data.groupby("planner"):
+        hits = g[g.success]
+        stop = hits.seed.map(stop_times)
+        if hits.t_event.isna().any() or stop.isna().any():
+            raise ValueError("an aligned hit has no event or scheduled stop time")
+        before = int((hits.t_event < stop).sum())
+        motion.append(dict(planner=method, n_trials=len(g), aligned=int(len(hits)),
+                           before_final_knot=before, at_or_after_final_knot=len(hits)-before,
+                           median_stop_minus_event_s=(stop - hits.t_event).median()))
+    return pd.DataFrame(rows), pd.DataFrame(motion)
 
 
 def plots(tables, out):
@@ -234,7 +248,7 @@ def publish(runs, out):
     archive = runs / "scenarios" if (runs / "scenarios").is_dir() else DEFAULT_ARCHIVE
     inputs = {preset: read_raw(runs, preset) for preset in PRESETS}
     verify_freeze([meta for meta, _ in inputs.values()])
-    parts = {k: [] for k in ("rates", "outcomes", "paired", "by_speed", "by_switch", "timing")}
+    parts = {k: [] for k in ("rates", "outcomes", "paired", "by_speed", "by_switch", "motion_at_success", "timing")}
     with tempfile.TemporaryDirectory() as tmp:
         for preset, (meta, compressed) in inputs.items():
             path = Path(tmp) / preset
@@ -251,8 +265,9 @@ def publish(runs, out):
             edges = list(map(float, DEFAULT_SPEED_BINS.split(",")))
             parts["by_speed"].append(by_speed(data, crashes, edges).assign(preset=preset))
             parts["timing"].append(timing_sensitivity(data).assign(preset=preset))
-            parts["by_switch"].append(switch_breakdown(data, CONFIGS[f"perception_{preset}"], archive)
-                                      .assign(preset=preset))
+            switches, motion = describe_trajectories(data, CONFIGS[f"perception_{preset}"], archive)
+            parts["by_switch"].append(switches.assign(preset=preset))
+            parts["motion_at_success"].append(motion.assign(preset=preset))
         tables = {name: pd.concat(items, ignore_index=True) for name, items in parts.items()}
         test = tables["paired"].a == "student"
         tables["paired"].loc[test, "p_holm"] = holm(tables["paired"].loc[test, "p_mcnemar"].to_numpy())
