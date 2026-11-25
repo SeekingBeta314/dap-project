@@ -224,10 +224,14 @@ class DapEnv(gym.Env):
         camera = self.camera_cfg if self.use_camera else None
         trial_seed = (options or {}).get("trial_seed")
         camera_rng = None
+        frozen = (options or {}).get("frozen_scenario")
+        if frozen is not None and trial_seed is None:
+            raise ValueError("a frozen scenario requires its trial_seed")
         if trial_seed is not None:
             split = options.get("split", "eval")
             streams = SPLITS[split](int(trial_seed))
-            sc = sample_scenario(streams["scenario"], self.scenario_cfg, camera=camera)
+            sc = (frozen.build(self.scenario_name, split, int(trial_seed), camera) if frozen is not None
+                  else sample_scenario(streams["scenario"], self.scenario_cfg, camera=camera))
             sensor_rng, camera_rng = streams["sensor"], streams["camera"]
             self.scenario_id = ("trial" if split == "eval" else split, int(trial_seed))
         elif self.bank is not None:

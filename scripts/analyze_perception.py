@@ -21,11 +21,12 @@ import pandas as pd  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from dap.eval_scenarios import DEFAULT_ARCHIVE, load_frozen_scenario  # noqa: E402
 from dap.experiment import CONFIGS, PERCEPTION_METHODS  # noqa: E402
 from dap.stats import holm, mcnemar_exact, paired_bootstrap  # noqa: E402
 from analyze import DEFAULT_SPEED_BINS, by_speed, load, summary  # noqa: E402
 from publish_study import audit_run, timing_sensitivity  # noqa: E402
-from run_perception_study import CORE_FILES  # noqa: E402
+from run_perception_study import CORE_FILES, digest  # noqa: E402
 
 PRESETS = ("nominal", "wide")
 LABEL = dict(student="Depth student", servo_depth="Classical depth", teacher="Privileged teacher",
@@ -64,7 +65,14 @@ def read_raw(runs, preset):
     for m, meta in manifests.items():
         if meta["method"] != m or meta["config"] != expected:
             raise ValueError(f"{preset} {m}: manifest disagrees with frozen design")
+    archive = runs / "scenarios" if (runs / "scenarios").is_dir() else DEFAULT_ARCHIVE
+    archive_hashes = {meta["scenario_archive"] for meta in manifests.values()}
+    if archive_hashes != {digest(archive / f"{preset}.jsonl.gz")}:
+        raise ValueError(f"{preset}: scenario archive checksum differs from the run")
     for row in records:
+        frozen = load_frozen_scenario(cfg, row["seed"], archive)
+        if row.get("scenario_sha256") != frozen.sha256:
+            raise ValueError(f"{preset} seed {row['seed']}: scenario hash mismatch")
         if (row["outcome"] == "error") != bool(row["error_kind"]) or (
                 row["error_kind"] == "" and bool(row["error"])):
             raise ValueError(f"unclassified error in {preset}, seed {row['seed']}")
@@ -179,7 +187,37 @@ def save_fig(fig, out, name):
     plt.close(fig)
 
 
+def ieee_table(paired, dest):
+    """A self-contained, single-column IEEEtran table (no additional packages)."""
+    rows = []
+    for r in paired[paired.a == "student"].itertuples():
+        p = f"{r.p_holm:.3f}" if r.p_holm >= .001 else r"<0.001"
+        rows.append(f"{r.preset.title()} & {r.successes_a}/{r.n_pairs} & "
+                    f"{r.successes_b}/{r.n_pairs} & {100*r.success_diff:+.1f} & ${p}$ " + r"\\")
+    body = "\n".join(rows)
+    dest.write_text(
+        r"""\begin{table}[t]
+\centering
+\caption{Aligned first contacts on paired evaluation seeds. The difference is
+student minus classical depth in percentage points. Two-sided exact McNemar
+$p$-values are Holm-adjusted over the two presets.}
+\label{tab:perception-paired}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrrr}
+\hline
+Preset & Student & Classical & Diff. (pp) & Adj. $p$ \\
+\hline
+""" + body + r"""
+\hline
+\end{tabular}
+\end{table}
+"""
+    )
+
+
 def publish(runs, out):
+    archive = runs / "scenarios" if (runs / "scenarios").is_dir() else DEFAULT_ARCHIVE
     inputs = {preset: read_raw(runs, preset) for preset in PRESETS}
     verify_freeze([meta for meta, _ in inputs.values()])
     parts = {k: [] for k in ("rates", "outcomes", "paired", "by_speed", "timing")}
@@ -204,9 +242,15 @@ def publish(runs, out):
         tables["paired"].loc[test, "p_holm"] = holm(tables["paired"].loc[test, "p_mcnemar"].to_numpy())
         (out / "figures").mkdir(parents=True, exist_ok=True)
         plots(tables, out / "figures")
+        ieee_table(tables["paired"], out / "paired_table.tex")
         for name, table in tables.items():
             table.to_csv(out / f"{name}.csv", index=False)
         for preset, (meta, compressed) in inputs.items():
+            scenario_file = archive / f"{preset}.jsonl.gz"
+            scenario_out = out / "scenarios" / scenario_file.name
+            if scenario_file.resolve() != scenario_out.resolve():
+                scenario_out.parent.mkdir(exist_ok=True)
+                scenario_out.write_bytes(scenario_file.read_bytes())
             dest = out / preset
             dest.mkdir(exist_ok=True)
             (dest / "config.json").write_text(json.dumps(meta, indent=2) + "\n")

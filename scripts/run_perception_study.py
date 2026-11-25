@@ -24,7 +24,7 @@ from dap.experiment import CONFIGS, PERCEPTION_METHODS, Condition  # noqa: E402
 
 CORE_FILES = (
     "dap/bank.py", "dap/baselines.py", "dap/camera.py", "dap/depth_noise.py",
-    "dap/envs/dap_env.py", "dap/estimator.py", "dap/experiment.py", "dap/feasibility.py",
+    "dap/envs/dap_env.py", "dap/eval_scenarios.py", "dap/estimator.py", "dap/experiment.py", "dap/feasibility.py",
     "dap/ik.py", "dap/metrics.py", "dap/partner.py", "dap/perception.py", "dap/planner.py",
     "dap/policy_eval.py", "dap/scenario.py", "dap/scene.py", "dap/scoring.py", "dap/trial.py",
     "models/dap_hand.sdf", "scripts/run_experiment.py", "scripts/run_perception_study.py",
@@ -37,6 +37,7 @@ def digest(path):
 
 def manifest(cfg, method, checkpoint):
     from dap.baselines import SERVO_DEPTH_CAMERA
+    from dap.eval_scenarios import DEFAULT_ARCHIVE
 
     extra_files, artifacts = [], {}
     packages = ["drake", "numpy", "scipy", "gymnasium"]
@@ -52,6 +53,8 @@ def manifest(cfg, method, checkpoint):
                 camera=dataclasses.asdict(SERVO_DEPTH_CAMERA), depth_noise="med",
                 sources={f: digest(ROOT / f) for f in (*CORE_FILES, *extra_files)},
                 checkpoints=artifacts,
+                scenario_archive=(digest(DEFAULT_ARCHIVE / f"{cfg.scenario}.jsonl.gz")
+                                  if cfg.split == "eval" else None),
                 versions={p: importlib.metadata.version(p) for p in packages},
                 git=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip())
 
@@ -100,25 +103,33 @@ def policy_for(method, checkpoint):
 def run_seed(job):
     from dap.metrics import TrialResult
     from dap.scenario import SCENARIO_PRESETS, ScenarioError, draw_peak_speed
-    from scripts.run_experiment import _run_one
+    from dap.eval_scenarios import load_frozen_scenario
 
     cfg, method, seed, checkpoint = job
     condition = Condition(method, 1.)
-    if method not in ("student", "teacher"):
-        return _run_one((cfg, condition, seed, method, None, False))
-    from dap.policy_eval import run_policy_trial
-
-    # A bad checkpoint or wrong model type is a configuration error, not a trial outcome.
-    policy = policy_for(method, checkpoint)
+    frozen = load_frozen_scenario(cfg, seed) if cfg.split == "eval" else None
+    policy = policy_for(method, checkpoint) if checkpoint is not None else None
     try:
-        return run_policy_trial(cfg, condition, seed, policy,
-                                allow_privileged=method == "teacher").to_dict()
-    except ScenarioError:
+        if policy is None:
+            from dap.baselines import CAMERA_BASELINES, SERVO_DEPTH_CAMERA
+            from dap.trial import run_trial
+            from scripts.run_experiment import _factory
+
+            camera = SERVO_DEPTH_CAMERA if method in CAMERA_BASELINES else None
+            result = run_trial(cfg, condition, seed, camera=camera, controller_factory=_factory(method),
+                               frozen_scenario=frozen)
+        else:
+            from dap.policy_eval import run_policy_trial
+
+            result = run_policy_trial(cfg, condition, seed, policy, allow_privileged=method == "teacher",
+                                      frozen_scenario=frozen)
+    except Exception as exc:
         result = TrialResult(seed=seed, **condition.key())
-        result.outcome, result.error_kind = "error", "scenario"
+        result.outcome = "error"
+        result.error_kind = "scenario" if isinstance(exc, ScenarioError) else "harness"
         result.target_peak_speed = draw_peak_speed(cfg.rngs(seed)["scenario"], SCENARIO_PRESETS[cfg.scenario])
         result.error = traceback.format_exc(limit=5)
-        return result.to_dict()
+    return dict(result.to_dict(), scenario_sha256=frozen.sha256 if frozen else None)
 
 
 def main():

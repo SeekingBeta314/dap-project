@@ -47,7 +47,7 @@ def _check_env(env: DapEnv, cfg: ExperimentConfig, cond: Condition):
 
 
 def run_policy_trial(cfg: ExperimentConfig, cond: Condition, seed: int, policy, env=None,
-                     env_kwargs=None, allow_privileged=False, return_log=False):
+                     env_kwargs=None, allow_privileged=False, return_log=False, frozen_scenario=None):
     """One trial of `policy` on experiment seed `seed`. A crash inside the
     policy is a trial outcome (error_kind "controller"), as in run_trial.
     Policies that see ground truth ("privileged") are references, not
@@ -64,7 +64,8 @@ def run_policy_trial(cfg: ExperimentConfig, cond: Condition, seed: int, policy, 
 
     result = TrialResult(seed=seed, planner=cond.planner, noise_scale=cond.noise_scale)
     wall0 = time.perf_counter()
-    obs, _ = env.reset(options={"trial_seed": int(seed), "split": cfg.split})
+    obs, _ = env.reset(options={"trial_seed": int(seed), "split": cfg.split,
+                                "frozen_scenario": frozen_scenario})
     record_scenario(result, env.scenario)
 
     def policy_crashed(what):

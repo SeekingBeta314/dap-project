@@ -117,7 +117,7 @@ def limit_command(q_cmd, q, v_max, dt, q_lo, q_hi):
 
 
 def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
-              *, controller_factory, return_log=False):
+              *, controller_factory, return_log=False, frozen_scenario=None):
     """`controller_factory(cfg, cond, scenario)` builds the controller; it
     gets the scenario so reference baselines (e.g. the oracle) can use
     ground truth. A real controller must not.
@@ -133,7 +133,8 @@ def run_trial(cfg: ExperimentConfig, cond: Condition, seed: int, camera=None,
     result = TrialResult(seed=seed, planner=cond.planner, noise_scale=cond.noise_scale)
     wall0 = time.perf_counter()
 
-    sc = sample_scenario(rngs["scenario"], SCENARIO_PRESETS[cfg.scenario], camera=camera)
+    sc = (frozen_scenario.build(cfg.scenario, cfg.split, seed, camera) if frozen_scenario is not None
+          else sample_scenario(rngs["scenario"], SCENARIO_PRESETS[cfg.scenario], camera=camera))
     scene, motion = sc.scene, sc.partner
     record_scenario(result, sc)
 
