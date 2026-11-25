@@ -141,6 +141,15 @@ def export_actor(args):
              "mean": torch.tensor(teacher.mean, dtype=torch.float32),
              "scale": torch.tensor(np.sqrt(teacher.var + 1e-8), dtype=torch.float32),
              "source": _source("teacher", args.checkpoint)}
+    from dap.camera import HeadCameraConfig
+    cam = HeadCameraConfig().scaled(.25)
+    X = cam.X_WC()
+    fx, fy, cx, cy = cam.intrinsics()
+    stats["camera"] = {
+        "R_WC": torch.tensor(X.rotation().matrix(), dtype=torch.float32),
+        "p_WC": torch.tensor(X.translation(), dtype=torch.float32),
+        "intrinsics": torch.tensor([fx/2, fy/2, (cx+.5)/2-.5, (cy+.5)/2-.5],
+                                   dtype=torch.float32)}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(stats, args.out)
 
@@ -189,7 +198,14 @@ def fit(args):
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     depth, state, data_info = _dataset(args.data)
-    model = load_student(args.init, allow_pose_only=True) if args.init else DepthStudent()
+    from dap.student_spatial import SpatialStudent
+    if args.init:
+        model = load_student(args.init, allow_pose_only=True)
+    else:
+        model = SpatialStudent() if args.architecture == "spatial" else DepthStudent()
+    spatial = isinstance(model, SpatialStudent)
+    if spatial and (args.shift or not args.teacher):
+        raise ValueError("spatial supervision requires --shift 0 and the exported teacher")
     proprio, partner = state[:, :31], state[:, 31:]
     # Scaling is measured on the training corpus only. Retain it on warm
     # starts: these buffers are part of the network's coordinate system.
@@ -204,8 +220,10 @@ def fit(args):
         model.actor_mean.copy_(actor["mean"])
         model.actor_scale.copy_(actor["scale"])
         teacher_hash = actor["source"]
+        if spatial:
+            model.configure_camera(actor["camera"])
     model.to(device)
-    model.encoder.to(memory_format=torch.channels_last)
+    model.to(memory_format=torch.channels_last)
     model.train()
     opt = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad),
                             lr=args.lr, weight_decay=.001)
@@ -225,15 +243,18 @@ def fit(args):
                 x = pad[:, :, dy:dy + x.shape[2], dx:dx + x.shape[3]]
             x = x.contiguous(memory_format=torch.channels_last)
             prop, truth = proprio[idx].to(device), partner[idx].to(device)
-            estimated, action = model.predict(x, prop)
-            pose_loss = F.smooth_l1_loss((estimated - truth) / model.partner_scale,
-                                         torch.zeros_like(truth))
-            if args.teacher:
-                with torch.no_grad():
-                    target = model.action(prop, truth)
-                act_loss = F.mse_loss(action, target)
+            if spatial:
+                pose_loss, act_loss = model.losses(x, prop, truth)
             else:
-                act_loss = pose_loss.new_zeros(())
+                estimated, action = model.predict(x, prop)
+                pose_loss = F.smooth_l1_loss((estimated - truth) / model.partner_scale,
+                                             torch.zeros_like(truth))
+                if args.teacher:
+                    with torch.no_grad():
+                        target = model.action(prop, truth)
+                    act_loss = F.mse_loss(action, target)
+                else:
+                    act_loss = pose_loss.new_zeros(())
             loss = pose_loss + act_loss
             opt.zero_grad()
             loss.backward()
@@ -243,13 +264,14 @@ def fit(args):
         epoch_stats = dict(zip(("pose", "action", "loss"), (avg / len(state)).tolist()))
         trace.append(epoch_stats)
         print(f"epoch {epoch+1}/{args.epochs}: {epoch_stats}", flush=True)
-    metadata = {"teacher": teacher_hash, "seed": args.seed, "epochs": args.epochs,
+    architecture = "spatial" if spatial else "global"
+    metadata = {"architecture": architecture, "teacher": teacher_hash, "seed": args.seed, "epochs": args.epochs,
                 "lr": args.lr, "shift": args.shift, "batch_size": args.batch_size,
                 "device": str(device), "torch": str(torch.__version__), "data": data_info,
                 "init_sha256": _digest(args.init) if args.init else None,
                 "states": len(state), "trace": trace}
     tmp = args.out.with_suffix(".tmp.pt")
-    torch.save({"format": 1, "weights": model.cpu().state_dict(),
+    torch.save({"format": 1, "architecture": architecture, "weights": model.cpu().state_dict(),
                 "teacher": teacher_hash}, tmp)
     tmp.replace(args.out)
     args.out.with_suffix(".json").write_text(json.dumps(metadata, indent=2))
@@ -314,6 +336,7 @@ def main():
     p.add_argument("--lr", type=float, default=.001)
     p.add_argument("--shift", type=int, default=1)
     p.add_argument("--device", choices=("cuda", "cpu"), default="cpu")
+    p.add_argument("--architecture", choices=("global", "spatial"), default="global")
     p.set_defaults(run=fit)
     p = sub.add_parser("validate")
     p.add_argument("--checkpoint", type=Path, required=True)

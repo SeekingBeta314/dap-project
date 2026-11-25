@@ -100,7 +100,11 @@ def load_student(path, *, allow_pose_only=False):
         raise ValueError("unrecognized depth student checkpoint")
     if not ckpt["teacher"] and not allow_pose_only:
         raise ValueError("a pose-only initialization has no fitted actor")
-    model = DepthStudent()
+    if ckpt.get("architecture", "global") == "spatial":
+        from dap.student_spatial import SpatialStudent
+        model = SpatialStudent()
+    else:
+        model = DepthStudent()
     model.load_state_dict(ckpt["weights"])
     return model.eval()
 
