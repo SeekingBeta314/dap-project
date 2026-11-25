@@ -23,7 +23,7 @@ from dap.baselines import SERVO_DEPTH_CAMERA, servo_depth_factory
 from dap.camera import HeadCameraConfig
 from dap.experiment import Condition, ExperimentConfig
 from dap.policy_eval import make_eval_env, run_policy_trial
-from dap.scene import Scene
+from dap.scene import PARTNER, Scene
 from dap.student import load_student
 from dap.trial import run_trial
 
@@ -74,13 +74,27 @@ def run_pair(cfg, seed, student, rows):
     env = make_eval_env(cfg, learned, 'pixels')
     policy = load_student(student)
     student_depth, classical_depth = [], []
+    estimate_p = None
+    predict = policy.predict
+
+    def capture_estimate(depth, proprio):
+        nonlocal estimate_p
+        partner, action = predict(depth, proprio)
+        estimate_p = partner[0, :3].detach().cpu().numpy().copy()
+        return partner, action
+
+    policy.predict = capture_estimate
 
     class RecordStudent:
         obs_mode = 'pixels'
 
         def __call__(self, obs):
-            student_depth.append((env.t, obs['depth'][-1].copy()))
-            return policy(obs)
+            nonlocal estimate_p
+            estimate_p = None
+            action = policy(obs)
+            _, (true_p, _, _) = env._partner_seen()
+            student_depth.append((env.t, (obs['depth'][-1].copy(), estimate_p, true_p.copy())))
+            return action
 
     def record_classical(*args):
         control = servo_depth_factory(*args)
@@ -89,8 +103,11 @@ def run_pair(cfg, seed, student, rows):
 
         def receive(captured, depth, q):
             nonlocal frame
-            frame = depth.copy()
             observe(captured, depth, q)
+            est = control.tracker.estimator
+            fix = est.x[:3].copy() if est.x is not None and abs(est.t - captured) < 1e-8 else None
+            env.scene.set_partner(env.motion.q(captured))  # independent observer scene
+            frame = depth.copy(), fix, env.scene.palm(PARTNER)[0]
 
         def move(t, q, estimator):
             nonlocal frame
@@ -123,6 +140,32 @@ def outcome(r):
     return {'collision': 'Collision', 'timeout': 'Timeout'}[r.outcome]
 
 
+def image_position(camera, point, size):
+    if point is None:
+        return None
+    px, py, z = camera.X_WC().inverse() @ point
+    fx, fy, cx, cy = camera.intrinsics()
+    if z <= 0:
+        return None
+    u, v = (fx * px / z + cx + .5) * size[0] / camera.width, (fy * py / z + cy + .5) * size[1] / camera.height
+    return (u, v) if 0 <= u < size[0] and 0 <= v < size[1] else None
+
+
+def mark_depth(raw, camera, estimate, truth):
+    draw = ImageDraw.Draw(raw)
+    uv = image_position(camera, truth, raw.size)
+    if uv:
+        x, y = uv
+        draw.ellipse((x-8, y-8, x+8, y+8), outline='#173334', width=4)
+        draw.ellipse((x-8, y-8, x+8, y+8), outline='#38e3d1', width=2)
+    uv = image_position(camera, estimate, raw.size)
+    if uv:
+        x, y = uv
+        for dx, dy in ((7,0), (0,7)):
+            draw.line((x-dx,y-dy,x+dx,y+dy), fill='#362b1c', width=5)
+            draw.line((x-dx,y-dy,x+dx,y+dy), fill='#ffbc41', width=2)
+
+
 def comparison_frame(t, pair, env, side, preset, seed):
     image = Image.new('RGB', (WIDTH, HEIGHT), BG)
     draw = ImageDraw.Draw(image)
@@ -137,18 +180,22 @@ def comparison_frame(t, pair, env, side, preset, seed):
         side.set_partner(env.motion.q(log.t[k]))
         image.paste(Image.fromarray(side.render_rgb()), (x, 104))
         available = [f for stamp, f in depth_frames if stamp <= log.t[k] + 1e-8]
-        if available and np.any(available[-1] > 0):
-            depth = available[-1]
+        if available and np.any(available[-1][0] > 0):
+            depth, estimate, truth = available[-1]
             # Darker = nearer. No return is shown in white, on a fixed metric scale.
             gray = np.where(depth > 0, 35 + 175 * np.clip(depth / 3, 0, 1), 255)
             raw = Image.fromarray(gray.astype('uint8')).resize((318, 180), Image.Resampling.NEAREST)
-            image.paste(raw.convert('RGB'), (x, 457))
+            raw = raw.convert('RGB')
+            mark_depth(raw, env.camera_cfg, estimate, truth)
+            image.paste(raw, (x, 457))
         else:
             draw.rectangle((x, 457, x + 317, 636), fill='#48565a')
             text(draw, (x + 13, 529), 'Awaiting depth frame', 20)
-        text(draw, (x + 334, 469), 'Depth input', 20)
-        text(draw, (x + 334, 503), 'Darker is nearer.', 17, MUTED)
-        text(draw, (x + 334, 531), 'White is no return.', 17, MUTED)
+        text(draw, (x + 334, 462), 'Depth input + overlays', 20)
+        text(draw, (x + 334, 497), '○  True palm at capture', 17, '#38e3d1')
+        text(draw, (x + 334, 524), ('+  Learned estimate', '+  Tracker update')[i], 17, '#ffbc41')
+        text(draw, (x + 334, 562), 'Darker is nearer.', 17, MUTED)
+        text(draw, (x + 334, 587), 'White is no return.', 17, MUTED)
         finished = k == len(log.t) - 1
         text(draw, (x, 653), outcome(r) if finished else 'Approaching', 24)
         text(draw, (x, 686), f'{"Stopped at" if finished else "Simulation time"} {log.t[k]:.2f} s',

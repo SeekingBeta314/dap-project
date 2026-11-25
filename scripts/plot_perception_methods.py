@@ -39,7 +39,7 @@ def main(out):
     box(.69,.335,.29,.15,'Joint velocity command\n20 Hz','#dcefed')
     arrow(.272,.41,.349,.41)
     arrow(.614,.41,.682,.41)
-    box(.02,.095,.245,.15,'Same sensor model\nand arm start','#eef3f4')
+    box(.02,.095,.245,.15,'Depth + arm state\n+ known static layout','#eef3f4')
     box(.357,.095,.25,.15,'Geometric tracker\n+ differential IK servo','#f4e7d9')
     box(.69,.095,.29,.15,'Joint position command\n100 Hz','#f4e7d9')
     arrow(.272,.17,.349,.17)
