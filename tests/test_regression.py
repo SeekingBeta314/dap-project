@@ -1,9 +1,12 @@
 """Behavior lock: digests of what the harness, the baselines, the env and the
-bank produce, compared bit for bit with tests/data/regression_golden.json.
-Refactors must leave every digest unchanged; a change in behavior must be
-deliberate and re-recorded:
+bank produce. The original exact-byte reference is for the team's Apple
+silicon environment. On other systems a full Git clone runs the pinned
+reference implementation in the same runtime. A small independent numerical
+reference on fixed validation trajectories also runs on source exports.
 
-    REGRESSION_WRITE=1 pytest tests/test_regression.py
+To record an exact-byte reference for a specific runtime:
+
+    REGRESSION_WRITE=1 REGRESSION_GOLDEN=/tmp/golden.json pytest tests/test_regression.py
 
 Only public outputs are digested (trial rows and logs, env observations,
 rewards, flags and info, bank specs, estimator outputs), with dtypes and
@@ -11,6 +14,12 @@ shapes; wall-clock fields are left out."""
 
 import hashlib
 import json
+import io
+import platform
+import shutil
+import subprocess
+import sys
+import tarfile
 import os
 from pathlib import Path
 
@@ -158,17 +167,101 @@ def _estimator():
     return {"estimator": digest(rows)}
 
 
-@pytest.fixture(scope="module")
-def current():
+def all_digests():
     return {**_trials(), **_envs(), **_policy_eval(), **_bank_specs(), **_estimator()}
 
 
-def test_behavior_matches_the_recorded_golden(current):
+# The original bit digests were produced on Apple silicon. Raw solver and
+# renderer bytes depend on CPU, libraries and driver. On Linux compare the
+# same cases to the unmodified team implementation on the same machine.
+REFERENCE_COMMIT = "d3f391445abaecdb287ac78fb47fc511f0d5381b"
+
+
+def reference_on_this_runtime(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    if not shutil.which("git"):
+        return None
+    archive = subprocess.run(
+        ["git", "archive", REFERENCE_COMMIT, "dap", "models/package.xml",
+         "models/dap_hand.sdf", "tests/test_regression.py"],
+        cwd=root, capture_output=True)
+    if archive.returncode:  # e.g. source ZIP or a shallow clone
+        return None
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as bundle:
+        bundle.extractall(tmp_path, filter="data")
+    # A separate process is essential: both programs import modules named dap.
+    program = """
+import json, runpy
+from pathlib import Path
+import dap
+assert Path(dap.__file__).resolve().is_relative_to(Path.cwd())
+cases = runpy.run_path('tests/test_regression.py')
+result = {}
+for name in ('_trials', '_envs', '_policy_eval', '_bank_specs', '_estimator'):
+    result.update(cases[name]())
+with open('digests.json', 'w') as f:
+    json.dump(result, f)
+"""
+    subprocess.run([sys.executable, "-c", program], cwd=tmp_path, check=True)
+    return json.loads((tmp_path / "digests.json").read_text())
+
+
+def test_behavior_matches_the_recorded_golden(tmp_path):
+    override = os.environ.get("REGRESSION_GOLDEN")
+    golden_path = Path(override) if override else GOLDEN
     if os.environ.get("REGRESSION_WRITE"):
-        GOLDEN.parent.mkdir(exist_ok=True)
-        GOLDEN.write_text(json.dumps(current, indent=1, sort_keys=True) + "\n")
-        pytest.skip(f"recorded {len(current)} digests to {GOLDEN}")
-    golden = json.loads(GOLDEN.read_text())
+        golden_path.parent.mkdir(exist_ok=True)
+        golden_path.write_text(json.dumps(all_digests(), indent=1, sort_keys=True) + "\n")
+        pytest.skip(f"recorded digests to {golden_path}")
+    if override or (sys.platform == "darwin" and platform.machine() == "arm64"):
+        golden = json.loads(golden_path.read_text())
+    else:
+        golden = reference_on_this_runtime(tmp_path)
+        if golden is None:
+            pytest.skip("Exact local reference requires full git history or REGRESSION_GOLDEN; "
+                        "portable numerical regression runs independently")
+    current = all_digests()
     assert set(current) == set(golden)
     changed = sorted(k for k in golden if current[k] != golden[k])
     assert not changed, f"behavior changed: {changed}"
+
+
+def test_portable_numerical_regression():
+    """Replay validated trajectories against numeric results from the pristine reference."""
+    from dap.eval_scenarios import FrozenScenario, decode_array
+    data = json.loads((GOLDEN.parent / "portable_regression.json").read_text(),
+                      object_hook=decode_array)
+    assert data["source"] == REFERENCE_COMMIT
+
+    class FixedDepthAction:
+        obs_mode = "pixels"
+
+        def __call__(self, obs):
+            action = np.array([.3, .6, 0, -.5, 0, .4, 0])
+            depth = obs["depth"][-1]
+            valid = depth[depth > 0]
+            if valid.size:
+                action[0] = np.clip(valid.mean() / 3., 0, 1)
+            return action
+
+    for case in data["cases"]:
+        cfg = ExperimentConfig(name="portable", scenario=case["preset"], split="val")
+        seed = case["seed"]
+        frozen = FrozenScenario(cfg.scenario, cfg.split, seed, "", case["spec"])
+        for name, expected in case["results"].items():
+            cond = Condition(name, 1.)
+            options = dict(return_log=True, frozen_scenario=frozen)
+            if name == "pixels":
+                result, log = run_policy_trial(cfg, cond, seed, FixedDepthAction(), **options)
+            else:
+                factory = getattr(baselines, name + "_factory")
+                result, log = run_trial(cfg, cond, seed, controller_factory=factory, **options)
+            assert result.outcome == expected["outcome"] and result.success == expected["success"]
+            assert result.n_steps == expected["n_steps"]
+            np.testing.assert_allclose(result.min_palm_dist, expected["min_palm_dist"], atol=2e-4)
+            if expected["t_event"] is None:
+                assert np.isnan(result.t_event)
+            else:
+                np.testing.assert_allclose(result.t_event, expected["t_event"], atol=1e-8)
+            q = np.asarray(log.q)[[0, len(log.q) // 2, -1]]
+            np.testing.assert_allclose(q, expected["trace"], atol=2e-4)
