@@ -2,23 +2,19 @@
 
 6.4210 final project — Josh Nix, Oliver Wang, Samuel Zhou.
 
-Two simulated iiwa arms face each other in Drake, in a layout randomized per
-trial. The partner arm's hand approaches along a randomized, human-like path;
-our arm sees it through a head-mounted depth camera (the pixel policy learns
-from its frames; a noisy pose sensor stands in for perception in the `state`
-modes and the `servo` baseline) and has to meet it palm to palm: palms parallel with fingers opposite. The task is purely kinematic:
-rigid hands, no clasp, and the trial ends at the touch. Each scenario draws
-its own partner speed (peak palm speed 0.15–0.9 m/s).
+Two KUKA iiwa arms meet palm to palm in Drake. The partner reaches along a randomized path. The other arm must infer where the partner's hand is and which way its fingers point from a delayed head-mounted depth camera. An aligned touch requires a front-side contact and no more than 15° of full rotation error.
 
-**Problem setup, every parameter and its source:** [docs/setup.md](docs/setup.md).
-Perception pipeline (the `servo_depth` baseline): [docs/perception_pipeline.md](docs/perception_pipeline.md).
-**Next (Phase 2, perception):** [docs/phase2_plan.md](docs/phase2_plan.md).
+## Depth perception experiment
 
-**Proposal (living draft):** https://claude.ai/artifact/QUBj973spHWSZKigTEf1Cz
+The learned student and the classical tracking controller each drive their own arm on 172 matched nominal reaches and 172 wider reaches. The student receives three depth frames and its own arm state. A privileged teacher provides pose and action supervision during training. The classical controller uses the known static arm layout to mask the scene and locate the partner's shoulder, fits the palm plane in depth, and uses a differential inverse-kinematics servo. The student receives no layout variable.
+
+The student made **114/172 aligned first contacts** on nominal reaches, compared with **21/172** for the classical tracker. On wider reaches the counts were **93/172** and **17/172**. Both paired comparisons gave Holm-adjusted *p* < 0.001. Precise timing remained difficult. Only 22 nominal and 15 wide student trials aligned within 100 ms of the intended meeting.
+
+[Results, uncertainty and raw trials](docs/perception_results/README.md) · [Figures and video footage](docs/presentation_assets/README.md) · [Prespecified comparisons](docs/perception_protocol.md) · [Simulation parameters](docs/setup.md)
 
 ## Watch the cupped-hand dap
 
-Two KUKA iiwa arms start with their cupped right hands about 66 cm apart. The striking arm sweeps outward and up, rolls its wrist into a single palm tap, then follows a lower curve back. The receiving arm follows a shorter arc. All fingers and thumbs hold their shape. The fixed camera shows the full swing, and the profile view shows the palms at contact.
+This authored gesture illustrates the human motion that motivated the rigid-hand perception benchmark. Two KUKA iiwa arms start with their cupped right hands about 66 cm apart. The striking arm sweeps outward and up, rolls its wrist into a single palm tap, then follows a lower curve back. The receiving arm follows a shorter arc. All fingers and thumbs hold their shape. The fixed camera shows the full swing, and the profile view shows the palms at contact.
 
 ![Two fixed, cupped right hands meeting once and rebounding](docs/hand_dap.gif)
 
@@ -44,7 +40,8 @@ The earlier depth-to-joint-goal experiment compared a learned policy with a pose
 | `dap/depth_noise.py` | D435-style depth noise (disparity noise, jitter, fixed pattern, dropout, shadow, holes) | done |
 | `dap/envs/` | Gymnasium env `dap/PalmMeet-v0`: `pixels` (own arm + depth frame stack), `privileged` (training only), `state`, `state+depth`; reward hook | done |
 | `dap/reward.py` | Training reward: the evaluation loss at the episode's end, potential-based shaping, action-rate penalty | done |
-| `dap/teacher.py` | PPO teacher on the privileged state, with per-worker rollout collection (`ParallelPPO`), a warm start and DAgger toward the servo expert (`ServoExpert`, `warm_start`, `dagger`), optional kickstarting, and a loader for scoring and DAgger labels | done; in training |
+| `dap/teacher.py` | Privileged controller trained by imitation of a servo expert, including on-policy DAgger updates | [Training evidence](docs/perception_results/training/teacher/) |
+| `dap/student.py` | Depth-conditioned student and checkpoint loader | [Training evidence](docs/perception_results/training/student/) |
 | `scripts/train_teacher.py` | Train the teacher on the bank (`--warm-start N` to start from the expert, `--dagger-rounds R`, `--kick-coef`); checkpoints scored on validation seeds | done |
 | `scripts/check_teacher.py` | The teacher's bar check: a checkpoint, `servo_gt_cam` and the servo expert on validation seeds 100–299 (`teacher_bar`), analysed by `analyze.py` | done |
 | `dap/bank.py` | Training scenario bank: sampled once from training seeds, rebuilt exactly in ~0.1 s | done |
@@ -71,6 +68,13 @@ partner), `+x` points toward the fingers.
 
 ## Setup
 
+Clone the study branch with Git so the experiment runner can record the commit used for each run.
+
+```bash
+git clone --branch finish/dap-study https://github.com/SeekingBeta314/dap-project.git
+cd dap-project
+```
+
 Needs Python 3.12 or 3.13 and Drake 1.57+ (tested on 1.57 and 1.58). `make
 setup` picks `python3.13`, then `python3.12`, then `python3`, and stops if
 that is older than 3.12 (Anaconda's default `python3` is often 3.11, which
@@ -80,6 +84,8 @@ From the repo root:
 ```bash
 make setup     # creates .venv and installs requirements.txt (once)
 ```
+
+For reproducing the published evaluation with the frozen weights, the [version constraints](docs/perception_results/constraints.txt) record the Linux CPython 3.12.12 analysis environment. On a clean clone use `PIP_CONSTRAINT="$PWD/docs/perception_results/constraints.txt" make setup`. Drake requires a working OpenGL renderer for camera experiments. The cluster used Mesa/EGL software rendering. The training archives record the separate CPU teacher and GPU vision-fitting environments.
 
 ## Run
 
@@ -103,13 +109,7 @@ only has `python3`, which is your system Python and not the project's.
 
 ## RL environment
 
-The method we are building toward is an end-to-end policy that acts from the
-head camera's depth frames. In `pixels` mode the policy sees only its own arm
-state and a stack of depth frames; ground truth (`privileged` mode,
-`info["privileged"]`) is for training a teacher or critic only. Its partner
-state is from the capture time of the student's newest frame (before the
-first frame arrives, from t = 0), so it is as old as what the student sees
-(`privileged_delay=False` for the current state).
+The deployed student's `pixels` observation contains its own arm state and a stack of depth frames. The simulator also exposes a privileged vector for training labels and privileged reference controllers. By default its partner state comes from the capture time of the student's newest delivered frame. At startup the privileged reference can use the pose at time zero while the student waits for a frame. Set `privileged_delay=False` to request the current state.
 
 ```bash
 python scripts/build_bank.py --n 20000 --workers 8      # training scenarios -> banks/
@@ -136,8 +136,10 @@ module:function --policy-name <label>`). The env's own reward is a hook
 Each named config in `dap/experiment.py` is a grid of conditions (controller x
 sensor-noise scale) times seeds, on a scenario preset
 (`ExperimentConfig.scenario`, default `nominal`). Every condition reuses the
-same seeds, and a seed fixes the whole scenario (layout, partner path and
-speed, our start) and the sensor noise, so comparisons are paired. Seeds
+same seeds for the layout, partner path, robot start and sensor noise. The
+held-out study also stores each solved trajectory, so numerical differences
+in the inverse-kinematics solver across machines cannot change which reach
+a controller receives. Seeds
 come from three disjoint splits (docs/setup.md section 9): training for
 learning, validation for every check or choice made by looking at results,
 and evaluation for reported results only, from seed 1000 on (lower ones
@@ -159,7 +161,7 @@ controller reports is scored.
 | `smoke` | Plumbing | `servo`, 3 validation seeds |
 | `first_look`, `first_look_wide` | Do the baselines work? | one baseline, 12 validation seeds |
 
-The evaluation configs come with Phase 2 ([docs/phase2_plan.md](docs/phase2_plan.md), item 8).
+For the final experiment, `scripts/run_perception_study.py` replays the same archived robot layout and trajectory for all eight controllers. `scripts/analyze_perception.py` rebuilds the statistical comparisons and publication figures. The [results archive](docs/perception_results/README.md) includes commands for both.
 
 ```bash
 python scripts/run_experiment.py smoke --dry-run                                  # list conditions, run nothing

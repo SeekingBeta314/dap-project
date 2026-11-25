@@ -79,8 +79,8 @@ def main():
     with ProcessPoolExecutor(args.workers) as pool:
         records = list(pool.map(one_trial, jobs))
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open('w') as stream:
-        w = csv.DictWriter(stream, records[0])
+    with args.out.open('w', newline='') as stream:
+        w = csv.DictWriter(stream, records[0], lineterminator='\n')
         w.writeheader()
         w.writerows(records)
 
