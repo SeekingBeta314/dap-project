@@ -1,5 +1,9 @@
 # Training the depth student
 
+The released model is the heatmap-and-finger-sign student after its on-policy DAgger round. It achieved 47 aligned contacts in 64 scenarios on the fresh nominal validation cohort, compared with 24 for the whole-image regression model. Both had been nominated using a separate 64-scenario cohort. The figure and records below cover model development. The main study reports performance on separate held-out evaluation seeds.
+
+[Validation-stage figure](validation_stages.png) · [Frozen selection and hashes](selection.json) · [All 512 validation trial records](validation.jsonl.gz) · [Rollout manifests](datasets.json) · [Fitting settings and traces](fits.json.gz) · [Initial diagnosis](initial_diagnostic.json) · [Released model](../../../../models/policies/student.pt)
+
 The student runs at 20 Hz. It receives the three latest delayed 212 × 120 depth frames and the robot's 31 proprioceptive values. It holds still until a frame arrives. Each 2 × 2 image block contributes its nearest valid depth. Both candidate architectures use the resulting images and normalized proprioception to estimate the partner palm's position, velocity, normal and finger axis at the newest frame's capture time. They orthogonalize the two estimated axes. A frozen copy of the selected teacher's actor turns the estimate and the robot's current state into seven bounded joint velocities. The deployed checkpoint contains both networks.
 
 The simulator supplies the true partner pose and velocity at the capture time for offline supervision. For action distillation, the same frozen actor runs twice on each training sample. One pass receives the inferred partner state and the other receives the training label. We minimize the mean squared difference between these actions plus a smooth L1 error on the standardized partner state. Pose-only warm-up uses the second term. The final closed-loop scores use the deployed student's estimates throughout.
@@ -17,6 +21,18 @@ The planned selection candidates use the same selected teacher: a fit on the ini
 The provisional student achieved 2 aligned contacts on the 64 selection scenarios. A diagnostic sampled every 32nd trajectory from the completed set of 1,536 learner rollouts. Across the 877 middle steps of these 48 training episodes, median palm-position error was 9.1 cm and median finger-axis error was 54.5°. The 80th-percentile finger error was 127.3°. This motivated a second architecture that learns an image heatmap for the palm, uses camera calibration to convert the estimated image location and depth into a world position, and reads an image patch centered on the palm. It learns the finger axis and its sign separately. All camera observations, teacher labels and evaluation rules are shared with the first architecture.
 
 The spatial model has 184,988 trainable parameters. It retains the image coordinates by dispensing with random shifts. Its heatmap loss uses a Gaussian target centered at the projected, latency-matched true palm position, and a separate binary loss supervises the finger-axis sign. The head sees the surrounding 20 × 20 pooled pixels and the full-image context. The follow-up evaluates a fit using the initial demonstration and learner-trajectory sets and another fit after collecting more training visits with the spatial model. We choose within each architecture on nominal validation seeds 300–363. The winners are compared on the same fresh nominal validation seeds 400–463. We freeze the model with more aligned contacts there, resolving ties by lower mean benchmark loss. These two cohorts serve model selection and remain separate from the final evaluation.
+
+## Training trajectories
+
+| Rollout policy | Nominal training seeds | Episodes | Labeled control steps |
+| --- | --- | ---: | ---: |
+| Privileged servo expert | 0–2,303 | 2,304 | 49,537 |
+| Earlier IK-goal depth policy | 10,000–10,767 | 768 | 15,565 |
+| Provisional depth student | 20,000–21,535 | 1,536 | 36,418 |
+| Global student after its first round | 30,000–31,151 | 1,152 | 23,747 |
+| First spatial student | 40,000–40,767 | 768 | 17,358 |
+
+The final global fit used the first four corpora (125,267 distinct labeled steps). The final spatial fit used the first three corpora and the spatial student's own visits (118,878 labeled steps). Each fitting epoch revisits the same corpus. All five collections used the training RNG tag.
 
 ## Reproduce the training
 

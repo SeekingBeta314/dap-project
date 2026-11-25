@@ -1,0 +1,78 @@
+{
+  "rule": "Most aligned contacts, then smaller mean benchmark loss, then listed order.",
+  "split": "validation",
+  "development_seeds_inclusive": [
+    300,
+    363
+  ],
+  "initial_diagnostic": {
+    "name": "warm",
+    "n": 64,
+    "successes": 2,
+    "mean_loss": 17.085402714837098,
+    "sha256": "c79f9c8431bf59b2cb2aaeb37514fa6cfdff9d4721f97eb8923e1159b6847a32"
+  },
+  "families": {
+    "global": [
+      {
+        "name": "finalwarm",
+        "n": 64,
+        "successes": 4,
+        "mean_loss": 15.290261837950425,
+        "sha256": "f9f831e6e17d1baa6a8e3d51e71be449546a8a0abd4974071fdc9a712083d196"
+      },
+      {
+        "name": "round1",
+        "n": 64,
+        "successes": 16,
+        "mean_loss": 12.415295910080866,
+        "sha256": "c4a36c2215c7586cf75bbdbfaa1554c91e7cd1d533ac2b5abc29d7eff94e3909"
+      },
+      {
+        "name": "round2",
+        "n": 64,
+        "successes": 22,
+        "mean_loss": 11.147002812943784,
+        "sha256": "fec9318ac7ddf3ccfae2ef9b0b223f5e72c64d5308e980df0db4cf61d7669d50"
+      }
+    ],
+    "spatial": [
+      {
+        "name": "spatial",
+        "n": 64,
+        "successes": 39,
+        "mean_loss": 6.890404021228295,
+        "sha256": "ba0fea74cc93f03770f7e44031c1096a38e8836af6d670eb6655e74315e2e140"
+      },
+      {
+        "name": "spatial2",
+        "n": 64,
+        "successes": 47,
+        "mean_loss": 5.614197152522506,
+        "sha256": "acc1952951026802b488b52c9391b8c0327ada9e912de9c46a27857f24af1d62"
+      }
+    ]
+  },
+  "confirmation_seeds_inclusive": [
+    400,
+    463
+  ],
+  "confirmation": [
+    {
+      "name": "round2",
+      "n": 64,
+      "successes": 24,
+      "mean_loss": 10.457583726642055,
+      "sha256": "fec9318ac7ddf3ccfae2ef9b0b223f5e72c64d5308e980df0db4cf61d7669d50"
+    },
+    {
+      "name": "spatial2",
+      "n": 64,
+      "successes": 47,
+      "mean_loss": 5.203863587310682,
+      "sha256": "acc1952951026802b488b52c9391b8c0327ada9e912de9c46a27857f24af1d62"
+    }
+  ],
+  "selected": "spatial2",
+  "sha256": "acc1952951026802b488b52c9391b8c0327ada9e912de9c46a27857f24af1d62"
+}

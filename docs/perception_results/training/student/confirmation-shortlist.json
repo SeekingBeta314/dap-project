@@ -1,0 +1,16 @@
+{
+  "nominees": [
+    {
+      "name": "round2",
+      "sha256": "fec9318ac7ddf3ccfae2ef9b0b223f5e72c64d5308e980df0db4cf61d7669d50"
+    },
+    {
+      "name": "spatial2",
+      "sha256": "acc1952951026802b488b52c9391b8c0327ada9e912de9c46a27857f24af1d62"
+    }
+  ],
+  "validation_seeds_inclusive": [
+    400,
+    463
+  ]
+}
