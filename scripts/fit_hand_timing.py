@@ -7,6 +7,7 @@ GIF and --overlay to inspect the hand-marked points on the six source frames.
 import argparse
 import hashlib
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -28,16 +29,54 @@ TRACK = [
 SOURCE_SHA256 = "003d685276f91ec19a8a004e27b95a1909482206e6b57d74d0c953f8942e6ac5"
 
 
+def export_reference(clip_path, dest):
+    """Transcode the original greeting at native speed with an attribution overlay."""
+    import imageio_ffmpeg
+    from matplotlib import get_data_path
+    from PIL import ImageFont
+    fontdir = Path(get_data_path()) / "fonts/ttf"
+    font = ImageFont.truetype(str(fontdir / "DejaVuSans.ttf"), 18)
+    bold = ImageFont.truetype(str(fontdir / "DejaVuSans-Bold.ttf"), 21)
+    points = {k: (p, q) for k, p, q in TRACK}
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=dest.parent) as temp, Image.open(clip_path) as clip:
+        output = Path(temp) / "reference.mp4"
+        encoder = imageio_ffmpeg.write_frames(str(output), (720, 800), fps=25, codec="libx264",
+            output_params=["-crf", "19", "-movflags", "+faststart"], macro_block_size=1)
+        encoder.send(None)
+        try:
+            for k in range(clip.n_frames):
+                clip.seek(k)
+                if clip.info["duration"] != 40:
+                    raise ValueError("expected 25 fps in original reference")
+                frame = Image.new("RGB", (720, 800), "#152426")
+                frame.paste(clip.convert("RGB"))
+                ink = ImageDraw.Draw(frame)
+                if k in points:
+                    for x, y in points[k]:
+                        ink.ellipse((x-8, y-8, x+8, y+8), outline="#ffd15c", width=3)
+                ink.text((15, 727), "Human dap   /   1× playback", fill="white", font=bold)
+                ink.text((15, 765), "OMFGrant • Contemporary Dap Up (2025) • Wikimedia Commons • CC0",
+                         fill="white", font=font)
+                encoder.send(frame.tobytes())
+        finally:
+            encoder.close()
+        output.replace(dest)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("clip", nargs="?", type=Path, help="original Contemporary_Dap_Up.gif")
     parser.add_argument("--overlay", type=Path, help="write the marked-up frames as a contact sheet")
+    parser.add_argument("--video", type=Path, help="export reference footage with its source on screen")
     args = parser.parse_args()
-    if args.overlay and not args.clip:
-        parser.error("--overlay requires the original clip")
+    if (args.overlay or args.video) and not args.clip:
+        parser.error("an overlay or video requires the original clip")
     if args.clip:
         if hashlib.sha256(args.clip.read_bytes()).hexdigest() != SOURCE_SHA256:
             parser.error("expected the November 2025 720 x 720 Commons release")
+        if args.video:
+            export_reference(args.clip, args.video)
         if args.overlay:
             sheet = Image.new("RGB", (3 * 410, 2 * 200))
             with Image.open(args.clip) as clip:

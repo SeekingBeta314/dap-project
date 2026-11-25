@@ -10,6 +10,7 @@ results/*
 !results/.gitkeep
 *.mp4
 !docs/hand_dap.mp4
+!docs/presentation_assets/*.mp4
 *.mov
 
 banks/
