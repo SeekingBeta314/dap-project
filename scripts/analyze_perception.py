@@ -36,6 +36,23 @@ OUTCOMES = {"aligned": "Aligned touch", "misaligned": "Misaligned touch", "colli
             "near_miss": "Timeout ≤5 cm", "far_timeout": "Timeout >5 cm", "crash": "Controller error"}
 
 
+def student_sources(path, manifest, seeds):
+    receipt = path / "deployment" / "sources.json"
+    identity = json.loads(receipt.read_text())
+    if identity["weights"] != manifest["checkpoints"]["weights"] or (
+            identity["sources"]["dap/student.py"] != manifest["sources"]["dap/student.py"]):
+        raise ValueError("student source or checkpoint disagrees with its deployment receipt")
+    covered = set()
+    for shard in receipt.parent.glob("*-*.json"):
+        report = json.loads(shard.read_text())
+        if report["source_receipt"] != digest(receipt):
+            raise ValueError("student shard has a different deployment receipt")
+        covered.update(range(report["first"], report["last"] + 1))
+    if covered != set(seeds):
+        raise ValueError("incomplete student source attestation")
+    return identity["sources"]
+
+
 def read_raw(runs, preset):
     cfg = CONFIGS[f"perception_{preset}"]
     seed_names = {f"{s}.json" for s in cfg.seeds()}
@@ -49,6 +66,9 @@ def read_raw(runs, preset):
             if found != seed_names:
                 raise ValueError(f"{preset} {method}: missing or unexpected seed files")
             manifests[method] = json.loads((path / "manifest.json").read_text())
+            if method == "student":
+                extra = student_sources(path, manifests[method], cfg.seeds())
+                manifests[method]["sources"].update(extra)
             for seed in cfg.seeds():
                 row = json.loads((path / f"{seed}.json").read_text())
                 if (row["seed"], row["planner"]) != (seed, method):

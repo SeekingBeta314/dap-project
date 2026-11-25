@@ -32,6 +32,16 @@ def test_cross_preset_analysis_rebuilds_from_raw_records(tmp_path, monkeypatch):
             manifest = dict(config=dataclasses.asdict(config), method=method, camera={},
                             scenario_archive=digest(scenario_path), depth_noise="med", sources=dict.fromkeys(CORE_FILES, "same"),
                             checkpoints={}, versions={k: "v" for k in ("drake", "numpy", "scipy", "gymnasium")})
+            if method == "student":
+                manifest["checkpoints"]["weights"] = "w"
+                manifest["sources"]["dap/student.py"] = "s"
+                attest = target / "deployment"
+                attest.mkdir()
+                receipt = attest / "sources.json"
+                receipt.write_text(json.dumps({"weights": "w", "sources": {
+                    "dap/student.py": "s", "dap/student_spatial.py": "x"}}))
+                (attest / "1000-1007.json").write_text(json.dumps(
+                    dict(source_receipt=digest(receipt), first=1000, last=1007)))
             (target / "manifest.json").write_text(json.dumps(manifest))
             for seed in config.seeds():
                 r = TrialResult(seed, method, 1.).to_dict()
@@ -62,7 +72,7 @@ def test_cross_preset_analysis_rebuilds_from_raw_records(tmp_path, monkeypatch):
     manifest = json.loads(manifest_path.read_text())
     manifest["checkpoints"]["weights"] = "changed"
     manifest_path.write_text(json.dumps(manifest))
-    with pytest.raises(ValueError, match="checkpoint changed"):
+    with pytest.raises(ValueError, match="checkpoint disagrees"):
         publish(source, rebuilt)
 
 
