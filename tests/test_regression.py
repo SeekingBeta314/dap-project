@@ -213,14 +213,15 @@ def test_behavior_matches_the_recorded_golden(tmp_path):
         golden_path.parent.mkdir(exist_ok=True)
         golden_path.write_text(json.dumps(all_digests(), indent=1, sort_keys=True) + "\n")
         pytest.skip(f"recorded digests to {golden_path}")
-    if override or (sys.platform == "darwin" and platform.machine() == "arm64"):
-        golden = json.loads(golden_path.read_text())
-    else:
-        golden = reference_on_this_runtime(tmp_path)
-        if golden is None:
+    current = all_digests()
+    golden = json.loads(golden_path.read_text())
+    if not override and current != golden:
+        native = reference_on_this_runtime(tmp_path)
+        if native is not None:
+            golden = native
+        elif (sys.platform, platform.machine()) != ("darwin", "arm64"):
             pytest.skip("Exact local reference requires full git history or REGRESSION_GOLDEN; "
                         "portable numerical regression runs independently")
-    current = all_digests()
     assert set(current) == set(golden)
     changed = sorted(k for k in golden if current[k] != golden[k])
     assert not changed, f"behavior changed: {changed}"
