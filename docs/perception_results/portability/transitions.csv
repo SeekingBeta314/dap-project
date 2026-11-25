@@ -1,0 +1,10 @@
+preset,original_class,repeat_class,n
+nominal,aligned,aligned,114
+nominal,collision,collision,34
+nominal,misaligned,misaligned,18
+nominal,timeout,timeout,6
+wide,aligned,aligned,93
+wide,collision,collision,48
+wide,misaligned,misaligned,24
+wide,timeout,collision,1
+wide,timeout,timeout,6

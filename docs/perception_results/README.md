@@ -33,6 +33,10 @@ The gaps are absolute success-rate differences on matched trials with pointwise 
 
 The limited number of tightly timed successes motivates a follow-up experiment. Fix a timing window before training, compare against a controller that explicitly predicts an intercept time, and report both alignment and collision rates on fresh scenarios. This would test whether a stronger timing objective improves contact precision without increasing collisions.
 
+## Reproduction on another machine
+
+We repeated all 344 student trials after the evaluation closed on a single additional CPU host. Every binary aligned-contact label agreed. One wide timeout became a collision. Continuous contact errors and timing can vary across machines. In the most divergent nominal trial the arm still made misaligned contact, but the measured rotation error shifted by 42.70°. The original 2,752 trials remain the basis of the primary results. [Reproduction records, hardware and instructions](portability/)
+
 ## Figures, tables and raw records
 
 | Artifact | How to use it |
