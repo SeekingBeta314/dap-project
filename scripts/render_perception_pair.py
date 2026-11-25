@@ -196,6 +196,16 @@ def comparison_frame(t, pair, env, side, preset, seed):
         text(draw, (x + 334, 524), ('+  Learned estimate', '+  Tracker update')[i], 17, '#ffbc41')
         text(draw, (x + 334, 562), 'Darker is nearer.', 17, MUTED)
         text(draw, (x + 334, 587), 'White is no return.', 17, MUTED)
+        switch = env.motion.reference.switch
+        if switch is not None:
+            _, start, duration = switch
+            if log.t[k] < start:
+                label = f'Target shift starts at {start:.2f} s'
+            elif log.t[k] < start + duration:
+                label = 'Partner is shifting the target'
+            else:
+                label = f'Target shifted at {start:.2f} s'
+            text(draw, (x + 334, 615), label, 17, '#f2c47a')
         finished = k == len(log.t) - 1
         text(draw, (x, 653), outcome(r) if finished else 'Approaching', 24)
         text(draw, (x, 686), f'{"Stopped at" if finished else "Simulation time"} {log.t[k]:.2f} s',

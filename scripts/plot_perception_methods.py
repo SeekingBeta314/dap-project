@@ -1,4 +1,4 @@
-"""Generate the two-column methods figure for the report and the video."""
+"""Generate the methods figure and the source slide for the video."""
 import argparse
 from pathlib import Path
 
@@ -10,7 +10,7 @@ from matplotlib.patches import FancyBboxPatch
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def main(out):
+def methods_figure(out):
     fig, ax = plt.subplots(figsize=(7.15, 3.65))
     ax.set(xlim=(0, 1), ylim=(0, 1))
     ax.axis('off')
@@ -52,7 +52,37 @@ def main(out):
     plt.close(fig)
 
 
+def references_slide(out):
+    entries = [
+        ('Equipping the Baxter Robot with\nHuman-Inspired Hand-Clapping Skills',
+         'Fitter & Kuchenbecker · IEEE RO-MAN, 2016', 'doi.org/10.1109/ROMAN.2016.7745097'),
+        ('Visual Servo Control II.\nAdvanced Approaches',
+         'Chaumette & Hutchinson · IEEE RAM, 2007', 'doi.org/10.1109/MRA.2007.339609'),
+        ('Learning by Cheating',
+         'Chen et al. · CoRL, PMLR 100, 2020', 'proceedings.mlr.press/v100/chen20a.html'),
+        ('A Reduction of Imitation Learning and Structured\nPrediction to No-Regret Online Learning',
+         'Ross, Gordon & Bagnell · AISTATS, 2011', 'proceedings.mlr.press/v15/ross11a.html'),
+        ('Agile Catching with Whole-Body MPC\nand Blackbox Policy Learning',
+         'Abeyruwan et al. · L4DC, 2023', 'proceedings.mlr.press/v211/abeyruwan23a.html'),
+        ('Contemporary Dap Up',
+         'OMFGrant · Wikimedia Commons, 2025 · CC0', 'commons.wikimedia.org/wiki/File:Contemporary_Dap_Up.gif'),
+    ]
+    figure = plt.figure(figsize=(16, 9), facecolor='#152426')
+    figure.text(.045, .875, 'References', color='white', size=40, weight='bold')
+    for i, (title, credit, url) in enumerate(entries):
+        x, y = .045 + .49 * (i % 2), .765 - .254 * (i // 2)
+        figure.text(x, y, title, va='top', color='#fafafa', size=18.5)
+        figure.text(x, y - .097, credit, va='top', color='#bad4d0', size=15)
+        figure.text(x, y - .143, url, va='top', color='#c5cbca', size=12,
+                    url='https://' + url)
+    for fmt in ('png', 'pdf'):
+        figure.savefig(out / f'references_slide.{fmt}', dpi=120, facecolor=figure.get_facecolor())
+    plt.close(figure)
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out', type=Path, default=ROOT / 'docs/presentation_assets')
-    main(p.parse_args().out)
+    output = p.parse_args().out
+    methods_figure(output)
+    references_slide(output)

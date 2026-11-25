@@ -3,7 +3,7 @@
 This document records the simulated problem: scene, randomization, the
 "a dap is possible" check, the partner's motion, the head camera, depth
 noise, and the RL environment. It gives every parameter and where it comes
-from. The project also includes a [separate cupped-hand replay](hand_dap.md) and [archived earlier controller experiments](results/README.md).
+from. The [held-out evaluation](perception_results/README.md) uses the simulation described here. The project also includes a [separate cupped-hand replay](hand_dap.md) and [archived earlier controller experiments](results/README.md).
 
 Status labels on sources: **V** means verified in the primary paper, datasheet
 or released code. **S** means secondary (a review, or a paper citing the

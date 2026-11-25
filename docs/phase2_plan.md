@@ -1,5 +1,9 @@
 # Phase 2 plan: perceiving the partner from depth
 
+For the completed study, see the [held-out results](perception_results/README.md),
+[evaluation protocol](perception_protocol.md) and [report and video assets](presentation_assets/README.md).
+The dated handoff below records the original design decisions.
+
 Status: written 2026-11-22, at the end of Phase 1. This is the handoff for
 whoever picks up Phase 2. It says what Phase 1 established, what Phase 2 is
 for, what to build in what order, how it will be evaluated, and what the
