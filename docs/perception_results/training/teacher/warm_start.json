@@ -1,0 +1,12 @@
+{
+  "pi_mse": 0.0152463149279356,
+  "vf_mse": 0.11465709656476974,
+  "target_var": 0.9437022805213928,
+  "n": 36089,
+  "expert_success": 0.953125,
+  "expert_outcomes": {
+    "contact": 1539,
+    "collision": 57,
+    "timeout": 4
+  }
+}

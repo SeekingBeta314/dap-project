@@ -1,0 +1,89 @@
+{
+  "selection_criterion": "Maximize successes under deterministic control on validation seeds 0-31, breaking ties by smaller mean benchmark loss. Twelve fixed rounds plus warm start.",
+  "training_run": "results/teacher/phase2_teacher",
+  "validation": [
+    {
+      "checkpoint": "0",
+      "n": 32,
+      "successes": 13,
+      "mean_loss": 12.12421906946218
+    },
+    {
+      "checkpoint": "dagger1",
+      "n": 32,
+      "successes": 31,
+      "mean_loss": 2.428174445009165
+    },
+    {
+      "checkpoint": "dagger2",
+      "n": 32,
+      "successes": 20,
+      "mean_loss": 5.225493847331513
+    },
+    {
+      "checkpoint": "dagger3",
+      "n": 32,
+      "successes": 18,
+      "mean_loss": 5.596804505944723
+    },
+    {
+      "checkpoint": "dagger4",
+      "n": 32,
+      "successes": 29,
+      "mean_loss": 3.028201526082526
+    },
+    {
+      "checkpoint": "dagger5",
+      "n": 32,
+      "successes": 30,
+      "mean_loss": 2.288707620750894
+    },
+    {
+      "checkpoint": "dagger6",
+      "n": 32,
+      "successes": 30,
+      "mean_loss": 2.2184783837987223
+    },
+    {
+      "checkpoint": "dagger7",
+      "n": 32,
+      "successes": 30,
+      "mean_loss": 2.026800511332182
+    },
+    {
+      "checkpoint": "dagger8",
+      "n": 32,
+      "successes": 30,
+      "mean_loss": 1.9266637832471465
+    },
+    {
+      "checkpoint": "dagger9",
+      "n": 32,
+      "successes": 30,
+      "mean_loss": 1.8921488622526985
+    },
+    {
+      "checkpoint": "dagger10",
+      "n": 32,
+      "successes": 31,
+      "mean_loss": 1.208752737386667
+    },
+    {
+      "checkpoint": "dagger11",
+      "n": 32,
+      "successes": 31,
+      "mean_loss": 1.392152844082025
+    },
+    {
+      "checkpoint": "dagger12",
+      "n": 32,
+      "successes": 32,
+      "mean_loss": 1.0188028064704835
+    }
+  ],
+  "selected": "results/teacher/phase2_teacher/ckpt_dagger12",
+  "sha256": {
+    ".zip": "7ff56406e680636c3af55ecdbf4f74739dcf563bc92e3cc2db05a5d50911c1c9",
+    ".norm.pkl": "9353ddde3318c2e55ef74640570b936fbd3bb8abbd299b235e683ef44663a285"
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "preset": "nominal",
+  "config": "ScenarioConfig(layout=LayoutRanges(distance=(1.2, 1.75), lateral=0.3, yaw_deg=30.0, height=0.15), meeting=MeetingRanges(palm_height=0.6, sigma=0.05, clip=0.1, box=0.03), path=PathConfig(peak_speed=(0.15, 0.9), t_meet=(0.4, 4.0), start_back=(0.15, 0.45), start_lateral=0.25, start_vertical=0.2, bulge_sigma=(0.03, 0.08), approach_frac=(0.25, 0.5), overshoot=(0.03, 0.1), tilt_max_deg=25.0, switch_prob=0.0, switch_dist=(0.05, 0.15), switch_start=(0.3, 0.6), switch_dur=(0.4, 0.8), knot_dt=0.05, dense_dt=0.01, track_pos_tol=0.001, track_angle_tol_deg=1.0, speed_margin=0.95, clearance=0.005, start_tries=5, path_tries=10), start_noise='medium', partner_start_noise='medium', max_base_distance=1.85, feasibility_restarts=5, start_tries=20, start_clearance=0.01, reach_speed_margin=0.9, joint_limit_margin_deg=5.0, max_attempts=200)",
+  "first_seed": 0,
+  "failed_seeds": [],
+  "build_s": 853.9711638905574,
+  "provenance": {
+    "git": "390f29e-dirty",
+    "drake": "1.58.0",
+    "numpy": "2.5.5",
+    "python": "3.12.12",
+    "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+  },
+  "shards": [
+    {
+      "first_seed": 0,
+      "n": 384,
+      "sha256": "de8a7312915942479e2949c22608b76a4a18fc9a71871b6c661049b0d654dde4",
+      "provenance": {
+        "git": "390f29e-dirty",
+        "drake": "1.58.0",
+        "numpy": "2.5.5",
+        "python": "3.12.12",
+        "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+      }
+    },
+    {
+      "first_seed": 384,
+      "n": 384,
+      "sha256": "2b8d215afbca1b690a984e7a78c1f79e282f3165198c3a5c9ef6a9940e245204",
+      "provenance": {
+        "git": "390f29e-dirty",
+        "drake": "1.58.0",
+        "numpy": "2.5.5",
+        "python": "3.12.12",
+        "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+      }
+    },
+    {
+      "first_seed": 768,
+      "n": 384,
+      "sha256": "4192367052135583c676760ec8f625698af23d093bb47853dab585ea22eb379f",
+      "provenance": {
+        "git": "aba4ffe-dirty",
+        "drake": "1.58.0",
+        "numpy": "2.5.5",
+        "python": "3.12.12",
+        "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+      }
+    },
+    {
+      "first_seed": 1152,
+      "n": 384,
+      "sha256": "b9594cafa5877392c8c880da310568968642df8ad41f8ca554620333778b77c1",
+      "provenance": {
+        "git": "aba4ffe-dirty",
+        "drake": "1.58.0",
+        "numpy": "2.5.5",
+        "python": "3.12.12",
+        "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+      }
+    },
+    {
+      "first_seed": 1536,
+      "n": 384,
+      "sha256": "2f1545b58a834e886e976bed4d9aa77cfa55652a8f682565c641385be9051772",
+      "provenance": {
+        "git": "aba4ffe-dirty",
+        "drake": "1.58.0",
+        "numpy": "2.5.5",
+        "python": "3.12.12",
+        "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+      }
+    },
+    {
+      "first_seed": 1920,
+      "n": 384,
+      "sha256": "2c55956e802437685891e41058b0bbd4072060f8bd8d81e9896aaa58dbcca818",
+      "provenance": {
+        "git": "aba4ffe-dirty",
+        "drake": "1.58.0",
+        "numpy": "2.5.5",
+        "python": "3.12.12",
+        "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+      }
+    },
+    {
+      "first_seed": 2304,
+      "n": 384,
+      "sha256": "6b6b27f28fa35958aa02fa56664d3121917b4b452529f348744e835287e5707f",
+      "provenance": {
+        "git": "aba4ffe-dirty",
+        "drake": "1.58.0",
+        "numpy": "2.5.5",
+        "python": "3.12.12",
+        "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+      }
+    },
+    {
+      "first_seed": 2688,
+      "n": 384,
+      "sha256": "702cf9d1378c9bdd1e96095f311412b83f31efde66791293ffe3b9bee6accc95",
+      "provenance": {
+        "git": "aba4ffe-dirty",
+        "drake": "1.58.0",
+        "numpy": "2.5.5",
+        "python": "3.12.12",
+        "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+      }
+    }
+  ],
+  "n": 3072,
+  "last_seed": 3071,
+  "uncompressed_sha256": "4e452c74cc02a4cdb3e2ff63e6a2802169b5198ed260b0c801e14b5d6d18ca0d",
+  "compressed_sha256": "86f97ee3cfcffb8f21c20c68b4164bc6c9ab0705f034daff5d82351d6a4f70dd"
+}
