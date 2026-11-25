@@ -179,6 +179,11 @@ def main():
     for name in ("initial-actor", "warm", "round1", "spatial"):
         if name != selected:
             shutil.copyfile(runs / f"{name}.pt", behavior / f"{name}.pt")
+    # Both nominees can be replayed on the fresh confirmation cohort. A
+    # nominee that was already archived as a rollout policy needs one copy.
+    runner_up = next(name for name in winners if name != selected)
+    if not (behavior / f"{runner_up}.pt").exists():
+        shutil.copyfile(runs / f"{runner_up}.pt", archive / "runner_up.pt")
     datasets = {}
     for name in ("warm", "ik", "dagger", "second", "spatialdata"):
         manifest = json.loads((runs / name / "manifest.json").read_text())
