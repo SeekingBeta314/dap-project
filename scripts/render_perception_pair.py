@@ -13,6 +13,7 @@ from pathlib import Path
 
 import imageio_ffmpeg
 import numpy as np
+import torch
 from matplotlib import get_data_path
 from PIL import Image, ImageDraw, ImageFont
 
@@ -68,6 +69,7 @@ def frozen_input(cfg, seed, rows):
 def run_pair(cfg, seed, student, rows):
     # Attach read-only recorders to the actual controller interfaces. Each side
     # sees its own occlusion pattern after its first different arm command.
+    torch.set_num_threads(1)  # match the evaluation runner's inference settings
     learned, classical = Condition('student', 1.), Condition('servo_depth', 1.)
     env = make_eval_env(cfg, learned, 'pixels')
     policy = load_student(student)
