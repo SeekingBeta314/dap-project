@@ -17,12 +17,23 @@ experiment seeds.
 A rebuilt scenario is identical to the sampled one: same layout, same IK
 knots, so the same spline, partner motion and our start (tests/test_bank.py).
 Files are Python pickles of plain numbers and arrays; only load banks you
-built.
+built. Each bank records what built it (`provenance`: git commit, Drake,
+numpy and Python versions, platform). Whether another machine or Drake
+version samples the same scenarios from the same seeds is untested, so
+share the bank file itself (and its SHA-256, printed by
+scripts/build_bank.py) rather than rebuilding it elsewhere.
 """
 
+import importlib.metadata
 import pickle
+import platform
+import subprocess
+import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
 from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 from pydrake.all import RigidTransform, RotationMatrix
@@ -106,34 +117,47 @@ def sample_spec(seed, preset):
     return spec
 
 
+def provenance():
+    """What is building this bank: the repo's git commit ("-dirty" if the
+    working tree has changes, "unknown" outside a checkout), the Drake,
+    numpy and Python versions, and the platform."""
+    root = Path(__file__).resolve().parent.parent
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain"], cwd=root,
+                               capture_output=True, text=True, check=True).stdout.strip()
+        commit += "-dirty" if dirty else ""
+    except (OSError, subprocess.CalledProcessError):
+        commit = "unknown"
+    return dict(git=commit, drake=importlib.metadata.version("drake"),
+                numpy=importlib.metadata.version("numpy"), python=sys.version.split()[0],
+                platform=platform.platform())
+
+
 def build_bank(n, preset="nominal", first_seed=0, workers=1, progress=None):
     """Sample training seeds first_seed, first_seed + 1, ... until n
     scenarios exist. Returns the bank dict (see `save_bank`)."""
     t0 = time.perf_counter()
     specs, failed = [], []
     seed = first_seed
-    if workers > 1:
-        from concurrent.futures import ProcessPoolExecutor
-
-        pool = ProcessPoolExecutor(workers)
-    try:
+    with ProcessPoolExecutor(workers) if workers > 1 else nullcontext() as pool:
         while len(specs) < n:
             batch = list(range(seed, seed + (n - len(specs))))
             seed += len(batch)
-            if workers > 1:
-                got = list(pool.map(sample_spec, batch, [preset] * len(batch), chunksize=4))
-            else:
-                got = [sample_spec(s, preset) for s in batch]
+            presets = [preset] * len(batch)
+            got = (pool.map(sample_spec, batch, presets, chunksize=4) if pool
+                   else map(sample_spec, batch, presets))
             for s, g in zip(batch, got):
-                (specs.append(g) if g is not None else failed.append(s))
+                if g is None:
+                    failed.append(s)
+                else:
+                    specs.append(g)
             if progress:
                 progress(len(specs), n)
-    finally:
-        if workers > 1:
-            pool.shutdown()
     return dict(version=BANK_VERSION, preset=preset, config=repr(SCENARIO_PRESETS[preset]),
                 first_seed=first_seed, failed_seeds=failed, specs=specs,
-                build_s=time.perf_counter() - t0)
+                build_s=time.perf_counter() - t0, provenance=provenance())
 
 
 def save_bank(bank, path):
@@ -156,6 +180,7 @@ class ScenarioBank:
             raise ValueError(f"bank was built with a different {bank['preset']!r} preset; "
                              "rebuild it")
         self.preset = bank["preset"]
+        self.provenance = bank.get("provenance", {})
         self.specs = bank["specs"]
         if not self.specs:
             raise ValueError("empty scenario bank")

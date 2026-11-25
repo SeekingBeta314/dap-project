@@ -29,6 +29,29 @@ def test_oracle_daps():
         assert abs(r.time_err) <= 0.01
 
 
+def test_servo_daps_with_the_stand_in_sensor_and_with_ground_truth():
+    from dap.baselines import servo_factory, servo_gt_factory
+
+    for factory in (servo_factory, servo_gt_factory):
+        for r in _run(factory, seeds=range(3)):
+            assert r.error == "" and r.success, r
+            assert r.rot_err < 5
+
+
+def test_blind_ignores_the_estimator_and_holds_a_fixed_target():
+    from dap.baselines import blind_factory
+    from dap.scenario import SCENARIO_PRESETS, sample_scenario
+    from dap.experiment import trial_rngs
+
+    sc = sample_scenario(trial_rngs(0)["scenario"], SCENARIO_PRESETS[CFG.scenario])
+    blind = blind_factory(CFG, COND, sc)
+    a = blind.partner_fn(0.0, None)  # never touches the estimator
+    b = blind.partner_fn(1.0, None)
+    assert all(np.array_equal(x, y) for x, y in zip(a, b))
+    r = run_trial(CFG, COND, 0, controller_factory=blind_factory)
+    assert r.error == ""
+
+
 def test_holding_still_never_daps():
     for r in _run(hold_factory):
         assert r.outcome == "timeout" and not r.success and not r.collision
@@ -163,3 +186,31 @@ def test_limit_command():
     assert not ok
     out, ok = limit_command(np.full(7, 1.5), np.full(7, 0.995), v, 0.01, lo, hi)
     assert ok and np.allclose(out, 1.0)
+
+
+def test_servo_converges_to_a_fixed_pose(scenario):
+    """The resolved-rate step itself: with a still "partner" whose
+    antiparallel pose is a reachable palm pose, the palm face gets there."""
+    from dap.baselines import ROT_Y_PI, DiffIKServo
+    from dap.planner import controller_model
+    from dap.scene import OURS, P_PALM_FACE
+
+    scene, dt = scenario.scene, 0.01
+    saved = scene.q()
+    idx = scene.idx[OURS]
+    v_max, lo, hi = scene.v_max[idx], scene.q_lower[idx], scene.q_upper[idx]
+    q = scenario.q_ours0.copy()
+    scene.set_ours(np.clip(q + 0.3, lo, hi))
+    X = scene.palm_pose(OURS)
+    p_goal, R_goal = X @ P_PALM_FACE, X.rotation().matrix()
+    servo = DiffIKServo(lambda t, est: (p_goal, np.zeros(3), R_goal @ ROT_Y_PI), standoff=None)
+    servo.reset(controller_model(scene, dt), q)
+    for k in range(300):
+        q, ok = limit_command(servo.step(k * dt, q, None), q, v_max, dt, lo, hi)
+        assert ok
+    scene.set_ours(q)
+    X = scene.palm_pose(OURS)
+    scene.set_q(saved)
+    assert np.linalg.norm(X @ P_PALM_FACE - p_goal) < 1e-3
+    cos = (np.trace(X.rotation().matrix().T @ R_goal) - 1) / 2
+    assert np.degrees(np.arccos(np.clip(cos, -1, 1))) < 0.5

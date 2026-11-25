@@ -4,6 +4,9 @@ numpy
 matplotlib
 pandas
 gymnasium>=1.2,<2
+# Training (docs/setup.md section 8); SB3 2.9.2 needs torch>=2.8,<3, gymnasium>=0.29.1,<2
+torch>=2.8,<3
+stable-baselines3>=2.9.2,<3
 Pillow>=10.1
 imageio-ffmpeg>=0.5
 pytest

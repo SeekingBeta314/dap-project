@@ -54,7 +54,7 @@ def test_already_complete_run_leaves_config_alone(tmp_path, monkeypatch):
     run = tmp_path / "smoke"
     run.mkdir()
     (run / "config.json").write_text("existing metadata")
-    rows = [dict(planner="replan", noise_scale=1.0, seed=i, error="") for i in range(3)]
+    rows = [dict(planner="servo", noise_scale=1.0, seed=i, error="") for i in range(3)]
     (run / "trials.jsonl").write_text("\n".join(map(json.dumps, rows)))
     monkeypatch.setattr(sys, "argv", ["run", "smoke", "--out", str(tmp_path)])
     run_experiment.main()

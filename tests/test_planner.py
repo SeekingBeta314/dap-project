@@ -1,6 +1,7 @@
 import numpy as np
 
 from dap.meeting import target_palm_pose
+from dap.planner import ReplanningController
 from dap.scene import P_PALM_FACE
 from dap.experiment import CONFIGS, Condition
 from dap.trial import run_trial
@@ -24,6 +25,7 @@ def test_controllers_move_and_share_the_initial_plan():
     logs = []
     for mode in ["once", "replan"]:
         result, log = run_trial(CONFIGS["smoke"], Condition(mode, 1), 499900,
+                                controller_factory=lambda *_: ReplanningController(replan=mode == "replan"),
                                 return_log=True)
         assert not result.error and result.n_bad_commands == 0
         q = np.array(log.q)

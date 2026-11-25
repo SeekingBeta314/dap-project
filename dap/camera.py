@@ -47,7 +47,7 @@ class HeadCameraConfig:
     target: tuple = (0.7, 0.0, 0.6)  # m, point the optical axis passes through
     latency_frames: int = 1
     rgb: bool = False  # color is only needed for rendering / figures
-    label: bool = True  # ground-truth segmentation (see docs/perception_pipeline.md)
+    label: bool = True  # ground-truth segmentation, used only by tests
 
     def scaled(self, factor):
         """Same camera at a lower resolution (e.g. 0.25 -> 212x120 for RL)."""
@@ -100,6 +100,16 @@ def add_head_camera(builder, plant, scene_graph, cfg: HeadCameraConfig):
     sensor.set_name(cfg.name)
     builder.Connect(scene_graph.get_query_output_port(), sensor.query_object_input_port())
     return sensor
+
+
+def sensed_depth(depth, noise, z_far):
+    """What the head camera reports for a rendered depth image: D435-style
+    noise from `noise` (a dap.depth_noise.DepthNoiseModel), or with
+    `noise=None` the clean image with out-of-range pixels invalid (0).
+    float32 (H, W), metres."""
+    if noise is not None:
+        return noise.apply(depth)
+    return np.nan_to_num(np.where(depth > z_far, 0.0, depth), posinf=0.0).astype(np.float32)
 
 
 class FrameBuffer:

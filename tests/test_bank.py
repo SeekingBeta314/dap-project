@@ -1,13 +1,13 @@
-"""Scenario bank: rebuilt scenarios are identical to sampled ones, training
-streams are disjoint from evaluation seeds, and the IK context cache leaves
-sampling unchanged."""
+"""Scenario bank: rebuilt scenarios are identical to sampled ones, fresh env
+scenarios are not evaluation scenarios, and the IK context cache leaves
+sampling unchanged. Split disjointness: tests/test_experiment.py."""
 
 import numpy as np
 import pytest
 
 from dap.bank import ScenarioBank, build_bank, save_bank, scenario_from_spec, scenario_spec
 from dap.camera import HeadCameraConfig
-from dap.experiment import TRAIN_TAG, train_rngs, trial_rngs
+from dap.experiment import train_rngs, trial_rngs
 from dap.scenario import SCENARIO_PRESETS, sample_scenario
 from dap.scene import OURS, PARTNER
 
@@ -46,16 +46,26 @@ def test_a_wide_bank_contains_target_switches():
             assert rebuilt.partner.reference.switch is not None
 
 
-def test_training_streams_are_not_evaluation_streams():
-    # Different entropy (three words ending in TRAIN_TAG vs. two words), so
-    # different streams; spot-check that no training stream starts like any
-    # evaluation stream.
-    assert TRAIN_TAG != 0
-    eval_first = {trial_rngs(s)[k].random() for s in range(200) for k in ("scenario", "sensor",
-                                                                          "camera")}
-    train_first = {train_rngs(s)[k].random() for s in range(200) for k in ("scenario", "sensor",
-                                                                           "camera")}
-    assert not eval_first & train_first
+def test_fresh_env_scenarios_are_not_evaluation_scenarios():
+    # np_random(s) equals the evaluation scenario stream of seed s
+    # (default_rng([s, 0]) == default_rng(s)); the env must not sample from it.
+    import gymnasium as gym
+
+    import dap.envs  # noqa: F401
+    from dap.envs import ENV_ID
+
+    env = gym.make(ENV_ID, obs_mode="privileged").unwrapped
+    for s in range(2):
+        env.reset(seed=s)
+        ev = sample_scenario(trial_rngs(s)["scenario"], SCENARIO_PRESETS["nominal"])
+        assert not np.array_equal(env.scenario.q_ours0, ev.q_ours0)
+
+
+def test_parallel_build_matches_serial():
+    a, b = build_bank(2, "nominal", first_seed=3), build_bank(2, "nominal", first_seed=3, workers=2)
+    for x, y in zip(a["specs"], b["specs"]):
+        x, y = scenario_from_spec(x), scenario_from_spec(y)
+        _same_scenario(x, y)
 
 
 def test_bank_round_trip(tmp_path):
@@ -66,6 +76,8 @@ def test_bank_round_trip(tmp_path):
     save_bank(bank, path)
     loaded = ScenarioBank(path)
     assert len(loaded) == 3 and loaded.preset == "nominal"
+    assert set(loaded.provenance) == {"git", "drake", "numpy", "python", "platform"}
+    assert loaded.provenance["git"] != "unknown"  # the tests run inside the checkout
     sc = sample_scenario(train_rngs(6)["scenario"], SCENARIO_PRESETS["nominal"])
     _same_scenario(sc, loaded.get(1))
 

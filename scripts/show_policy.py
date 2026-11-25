@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dap.camera import HeadCameraConfig
-from dap.experiment import CONFIGS, Condition
+from dap.experiment import Condition, ExperimentConfig
 from dap.policy_eval import make_eval_env
 from dap.scene import Scene
 from dap.trial import score_log
@@ -41,11 +41,11 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
-    cfg = CONFIGS["speed_limits"]
+    cfg = ExperimentConfig(name="replay")
     cond = Condition("pixels", 1.0)
     policy = _load_policy_factory(args.policy)(cfg, cond)
     env = make_eval_env(cfg, cond, policy.obs_mode)
-    obs, _ = env.reset(options={"trial_seed": args.seed})
+    obs, _ = env.reset(options={"trial_seed": args.seed, "split": cfg.split})
     if hasattr(policy, "reset"):
         policy.reset()
     spectator = Scene(env.scenario.layout, camera=HeadCameraConfig(

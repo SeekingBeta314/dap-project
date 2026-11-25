@@ -1,59 +1,79 @@
-# Perception pipeline (planned, not implemented; optional)
+# Perception pipeline (the `servo_depth` baseline)
 
-The main method is now an end-to-end policy that learns its own perception
-from depth frames (`pixels` mode, `docs/setup.md` section 8), so this
-explicit pipeline is no longer on the critical path. It is still useful
-for a modular comparison (depth -> palm pose -> filter -> controller), and
-its palm estimate could serve as an auxiliary training target for the pixel
-policy.
+The main method is an end-to-end policy that learns its own perception from
+depth frames (`pixels` mode, `docs/setup.md` section 8). This explicit
+pipeline exists for one classical comparison on the same input: the
+diff-IK servo fed by perception from the student's depth frames
+(`servo_depth`, `docs/setup.md` section 1b). Code: `dap/perception.py`;
+tests: `tests/test_perception.py`.
 
-Until it exists, the planner interface and the `state` env modes get the
-partner palm pose from `dap.partner.NoisyPoseSensor`: ground truth plus
-i.i.d. Gaussian noise (5 mm, 2°), every 10 ms, with no latency, no dropouts
-and no occlusion. That is more favourable than the camera will be
-(`docs/setup.md`, section 10). The head camera, depth noise and frame
-timing the pipeline will consume already exist (sections 6 and 7).
+The `state` env modes and the `servo` baseline still get the partner palm
+from `dap.partner.NoisyPoseSensor`: ground truth plus i.i.d. Gaussian noise
+(5 mm, 2°) every 10 ms, with no latency, dropouts or occlusion.
 
-## Per frame (30 Hz, delivered with one frame of latency by `camera.FrameBuffer`)
+## Input
 
-1. **Render** depth (and labels) from the head camera, then apply
-   `DepthNoiseModel`.
-2. **Segment the partner palm.**
-   - First version: the Drake label image (`Scene.palm_label(PARTNER)`). This
-     is ground-truth segmentation and must be stated as such in the report.
-   - Later: colour segmentation (give the palm a distinct colour), or a
-     geometric crop around the KF's predicted position.
-   - Labelled frames double as auto-labelled training data for a learned
-     segmenter or pose estimator.
-3. **Back-project** the masked pixels to 3D with the camera intrinsics
-   (`HeadCameraConfig.intrinsics()`). Transform them to the world frame with
-   `HeadCameraConfig.X_WC()`.
-4. **Fit the palm.** The palm is a flat 10×12 cm box, so:
-   - RANSAC plane fit, with the inlier threshold tied to the axial noise
-     σ_z(z) (`depth_noise.axial_rms`) rather than a constant;
-   - palm normal = plane normal, oriented toward our side (the camera sees
-     the palm face);
-   - palm center = centroid of the inliers, corrected for edge pixels lost to
-     dropout and shadow;
-   - optional: ICP against the hand model for the rotation about the normal.
-     The finger plate breaks the box's symmetry.
-5. **Measurement covariance** from the fit residuals and the number of
-   inliers. Report "no measurement" below a minimum inlier count.
+`run_trial(..., camera=SERVO_DEPTH_CAMERA)` renders the head camera exactly
+as the env renders it for the student: 212×120, captured at 30 fps with
+`med` D435-style noise from the trial's camera stream, delivered one frame
+later (`camera.FrameBuffer`), together with our joint positions at capture.
 
-## Filter (`dap/estimator.py`)
+## Per frame
 
-- **Update** with each delivered measurement, stamped with its *capture*
-  time, not its delivery time.
-- **Gate outliers** with a Mahalanobis distance test against the predicted
-  measurement.
-- **Dropouts:** when a frame has no measurement, run predict only. Most
-  dropouts happen near contact, when our own hand occludes the partner's palm
-  from the head camera, so the last moments before the touch will often run
-  on prediction alone.
+1. **Segment without labels.** Render the depth of what our robot knows:
+   the floor, both pedestals and our own arm at its joint positions at
+   capture (`KnownWorld`, grown by one pixel). Pixels more than 3 cm + 3% of
+   depth in front of it are foreign; keeping those within the partner arm's
+   reach of its shoulder (1.1 m) also drops depth artifacts. On clean depth
+   this keeps exactly the partner's arm and hand (tested).
+2. **Pick the hand.** Points within 15 cm of the filter's predicted plate
+   middle; before the first fix, or after 0.5 s without one, of the partner
+   point farthest from its shoulder (the end of its arm). Re-acquiring
+   starts a fresh filter, so the jump is not read as motion.
+3. **Fit the plate.** The palm and finger plate form one flat 18×12 cm
+   rectangle. RANSAC plane with the MSAC score; the inlier band is 2σ of
+   the axial noise at the points' depth (`depth_noise.axial_rms`), at least
+   1 cm. Refit by SVD. Normal toward the camera (the palm faces us).
+4. **Accept or drop.** The fit must span the plate (5–95% extents within 20%
+   of 0.9 × 18 × 12 cm): partial views (an occluded or edge-on plate) bias
+   the plate's middle, so they are dropped and the filter predicts. Its
+   normal must be within 30° of the filter's while tracking, or face us
+   (within 70° of the horizontal direction to our base) when acquiring.
+5. **Pose.** Finger axis: the plate's long axis, signed away from the rest
+   of the partner's arm (the arm holds the plate 5 cm from its wrist end and
+   13 cm from its fingertip end). While tracking the sign stays continuous
+   unless two fixes in a row disagree. Palm face center: the plate's middle,
+   4 cm back toward the wrist.
 
-## Metrics to add
+Fixes update `dap.estimator.PalmEstimator` at their capture times. The servo
+predicts at most 0.1 s past the last fix and then holds that pose.
 
-- Visible palm pixels over time.
-- Length of the last blackout before contact.
-- Estimation error vs. time-to-contact.
-- Perception wall time per frame.
+## Measurements and what was dropped
+
+On the frames of 16 `servo` trials on training scenarios (**E**): 65% of
+frames give a fix; of the fixes, 84% have the palm normal within 15° (median
+3.2°), 69% the position within 5 cm (median 1.9 cm), and 15% a flipped
+finger direction. On clean depth (no noise, our arm still) the tests hold
+the median position error under 2.5 cm and the normal error under 5°.
+
+These gave no better fixes and are not in the code: a penalty for points in
+front of the plane, a smaller arm radius for the finger cue, and rejecting
+fits next to our own arm's silhouette (which also cut the fixes by 40%).
+The facing check when acquiring and the two-fix rule for the finger sign
+guard against failures found in review (a lock onto the partner's elbow, a
+single wrong sign turning the target 180°); their effect on end-to-end
+success was within noise on 24 training trials. Design choices were first
+explored on evaluation seeds 0–15 and then re-checked on training
+scenarios; those evaluation seeds are now spent (`docs/setup.md` section 9).
+
+## Known limits
+
+- A third of the frames give no fix: near contact our own hand hides much
+  of the partner's plate, and the head camera sees the palm at a slant.
+- When the hand is mostly hidden at the start, the tracker can lock onto a
+  plate-sized patch of the partner's arm (2 of 16 training trials).
+- The finger sign is wrong in about 15% of fixes. The plate is a symmetric
+  rectangle, so the arm's position is the only cue to the fingers'
+  direction, and a bent wrist can mislead it.
+- The filter's constant-acceleration model is misspecified for the partner
+  (`docs/setup.md` section 10), and biased fixes look like motion to it.

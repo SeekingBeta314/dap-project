@@ -190,8 +190,10 @@ def test_loss_is_vectorized_and_orders_outcomes():
     assert [r["outcome"] for r in rows] == ["contact"] * 3 + ["timeout", "collision"]
     assert ok["success"] and late["success"] and not bad["success"]
     table = {k: np.array([r[k] for r in rows]) for k in rows[0]}
-    loss = dap_loss(table)
-    w = LossWeights()
+    # Timing is unweighted by default; weighted, it must still respect the tiers.
+    assert dap_loss(table)[0] == dap_loss(table)[1]
+    w = LossWeights(w_time=1.0)
+    loss = dap_loss(table, w)
     assert loss.shape == (5,) and np.all(np.isfinite(loss))
     # Tiers: every success < every failed contact < every miss < collision,
     # even a badly timed success vs. a well-timed failure.

@@ -1,8 +1,9 @@
 # Problem setup
 
-This document describes the rigid-hand first-contact benchmark, including the scene, randomization, the
+This document records the simulated problem: scene, randomization, the
 "a dap is possible" check, the partner's motion, the head camera, depth
-noise, and the RL environment. It records parameter choices and their sources. The study report summarizes the experiments run with this setup. The cupped-hand demo shows a single palm strike and rebound. [Study report](report.pdf) · [Cupped-hand demo](hand_dap.md)
+noise, and the RL environment. It gives every parameter and where it comes
+from. The project also includes a [separate cupped-hand replay](hand_dap.md) and [archived earlier controller experiments](results/README.md).
 
 Status labels on sources: **V** means verified in the primary paper, datasheet
 or released code. **S** means secondary (a review, or a paper citing the
@@ -18,14 +19,20 @@ Code map:
 | Head camera, frame timing | `dap/camera.py` |
 | Depth noise | `dap/depth_noise.py` |
 | Feasibility check | `dap/feasibility.py` |
-| Partner motion | `dap/partner.py` |
+| Partner motion, stand-in pose sensor | `dap/partner.py` |
 | Scenario sampler | `dap/scenario.py` |
-| Trial loop (arm limits, logging) | `dap/trial.py` |
+| Trial loop (arm limits, logging, camera frames) | `dap/trial.py` |
 | Events, scores, loss | `dap/scoring.py` |
 | Result record | `dap/metrics.py` |
+| Conditions, configs, seed splits | `dap/experiment.py` |
 | Statistics | `dap/stats.py`, `scripts/analyze.py` |
-| Scripted references | `dap/baselines.py` |
+| Palm filter (Kalman) | `dap/estimator.py` |
+| Baselines and references | `dap/baselines.py` |
+| Depth perception for `servo_depth` | `dap/perception.py` |
 | Gymnasium env | `dap/envs/` |
+| Training scenario bank | `dap/bank.py` |
+| Scoring a learned policy | `dap/policy_eval.py` |
+| Teacher reward, PPO teacher | `dap/reward.py`, `dap/teacher.py` (`docs/teacher_design.md`) |
 
 ---
 
@@ -95,8 +102,18 @@ motion plus `t_extra` = 1 s, `dap.trial.horizon_steps`) is a **timeout**.
 ## 1b. Success, scores and loss
 
 **Success = the trial ended in a contact and the palms are antiparallel:
-`rot_err ≤ 15°`** (`Tolerances.rot_tol`, the study threshold, **Ours**). Position
-and timing are not success criteria; they are scores:
+`rot_err ≤ 15°`** (`Tolerances.rot_tol`, **Ours**). Position and timing
+are not success criteria; they are scores.
+
+*Settled for Phase 2 (2026-11-22), before any evaluation run.* We found no
+source for how precisely people align palms in a dap, so 15° is our
+choice; the oracle's median at contact is 2.4°, so it is not lenient for a
+good controller. Success does not require timing: a timing requirement
+would make the Phase 2 comparison partly a timing test, which the project
+does not claim (no comparator chooses a meeting time,
+`docs/phase2_plan.md` section 2), and it would penalize the servo baselines
+for a step they do not attempt. The cost: a touch against a partner palm
+that has already stopped counts as a dap. Timing is reported as `time_err`.
 
 | Score (at contact) | Meaning |
 | --- | --- |
@@ -109,11 +126,10 @@ and timing are not success criteria; they are scores:
 | `min_arm_dist`, `vmax_frac` | closest arm–arm distance; fraction of steps with a joint at ≥ 95% of its speed limit |
 
 **Loss** (`dap_loss`, vectorized over a results table, lower is better;
-weights fixed for this study in `LossWeights`, **Ours**). It is tiered, so the
-outcomes keep a fixed order whatever the errors: every success < every
-failed contact < every miss < every collision. With
-`e = (pos_err/3 cm)² + (rot_err/15°)² + (time_err/0.1 s)²` (+ an optional
-relative-speed term, weight 0 for now) and `f(e) = 5e/(e+1) ∈ [0, 5)`:
+weights in `LossWeights`, **Ours**, settled with the tolerance). It is
+tiered, so the outcomes keep a fixed order whatever the errors: every
+success < every failed contact < every miss < every collision. With
+`e = (pos_err/3 cm)² + (rot_err/15°)²` and `f(e) = 5e/(e+1) ∈ [0, 5)`:
 - success: `f(e)`, in [0, 5);
 - failed contact (rotation error over the tolerance): `5 + f(e)`, in [5, 10);
 - timeout: `10 + 5 · min(min_palm_dist / 0.3 m, 1)²`, in [10, 15], so a
@@ -121,6 +137,13 @@ relative-speed term, weight 0 for now) and `f(e) = 5e/(e+1) ∈ [0, 5)`:
 - collision: 20;
 - crashed trials: NaN here; the analysis gives controller crashes the
   collision loss (section 9).
+
+Timing and contact speed have terms in `LossWeights` (`w_time`,
+`time_scale` 0.1 s; `w_speed`, `rel_speed_scale` 0.5 m/s) with weight 0.
+Weighted at 1, the time term alone would put any contact 0.3 s or more
+off at 90% or more of its tier's width, and the servo's contacts range from 1.6 s
+early to 0.6 s late, so the loss would mostly measure the timing that
+success deliberately leaves out. Both are reported as their own scores.
 
 Changing the weights re-scores stored results without re-running anything,
 since `trials.jsonl` keeps every component.
@@ -143,6 +166,126 @@ harness around each `step` call.
   arm, by construction; section 5).
 
 So the task is solvable but not trivial.
+
+**Baselines** (`dap/baselines.py`). Each answers one question about the
+pixel policy's result; all run through `run_trial` on the paired seeds
+(`run_experiment.py <config> --controller <name>`).
+
+| Name | Sees the partner through | Question |
+| --- | --- | --- |
+| `hold` | nothing | floor |
+| `blind` | nothing: a fixed palm pose | does the task need perception at all? |
+| `servo` | the stand-in pose sensor (section 10) | what does a simple classical controller achieve? |
+| `servo_depth` | the head camera's depth frames, the student's input | the same controller with real perception |
+| `servo_gt` | true current state | the same controller with perfect state (reference) |
+| `servo_gt_cam` | the true palm pose at the camera's capture times | `servo_depth` with perfect perception; the classical counterpart of the teacher (reference) |
+| `oracle` | the scenario, including the future meeting | knows the answer in advance (reference) |
+
+- **`servo`:** reactive differential IK (resolved-rate control, Whitney
+  1969, with damped least squares, Nakamura & Hanafusa 1986 and Wampler
+  1986; damping 0.05, gain 10/s, **Ours**): a position-based visual servo
+  (Chaumette & Hutchinson 2006; for a moving target, Part II, 2007) on a
+  filtered pose estimate. Each step it aims our
+  palm face at the antiparallel pose of the partner palm predicted 0.1 s
+  ahead (the filter's prediction; `servo_gt` extrapolates the true state
+  the same way), feeding the partner's velocity forward. It first lines up
+  5 cm in front of the partner palm along its normal, then (latched once
+  within 2 cm and 10°) closes along the normal. Joint velocities are scaled
+  together to the limits. No collision avoidance beyond the approach along
+  the normal. The stand-in sensor reports the palm's finger direction as
+  well as its normal (same 2° noise), and the filter low-passes it.
+- **`servo_depth`:** the same servo on the partner palm perceived from
+  the frames the pixel policy sees (212×120, 30 fps, one frame late,
+  `med` depth noise, the trial's camera stream; `run_trial(camera=...)`
+  renders them exactly as the env does). Perception (`dap/perception.py`)
+  uses no labels:
+  - Segmentation: render the depth of what our robot knows (floor,
+    pedestals, our own arm at its joint angles at capture) and keep pixels
+    more than 3 cm + 3% of depth in front of it (**Ours**), within the
+    partner arm's reach of its shoulder (1.1 m, **E** from the iiwa model).
+  - Hand: points within 15 cm of the filter's predicted plate middle, or,
+    before the first fix and after 0.5 s without one (a fresh filter), of
+    the partner point farthest from its shoulder.
+  - Plate fit: RANSAC (Fischler & Bolles 1981) with the MSAC score (Torr &
+    Zisserman 2000), inlier band 2σ of the D435 axial noise (section 7), at
+    least 1 cm. Normal toward the camera; finger axis = the plate's long
+    axis, signed away from the partner's arm (the arm holds the 18 cm plate
+    5 cm from its wrist end).
+  - Accepted only if the fit spans the plate (5–95% extents within 20% of
+    0.9 × 18 × 12 cm; partial views bias the plate's middle) and its
+    normal is within 30° of the filter's while tracking (**Ours**), or
+    within 70° of the horizontal direction to our base when acquiring (the
+    facing cone plus the start tilt, sections 3–4; measured max 46° nominal,
+    55° wide, **E**). While tracking, the finger sign stays continuous
+    unless two fixes in a row disagree (**Ours**).
+  - The fixes update the same filter as `servo` at their capture times
+    (measurement std 1 cm, **Ours**; normal and finger smoothing at the
+    stand-in filter's time constant). Without fixes the servo predicts at
+    most 0.1 s past the last one and then holds (**Ours**): extrapolating
+    the constant-acceleration filter through a blackout runs away.
+  - What it may know: the camera's configuration and where the partner
+    stands (as `blind`), nothing about the partner's motion.
+- **`servo_gt_cam`:** `servo_depth` with its tracker replaced by the
+  truth (`TruthAtCapture`): at each delivered frame's capture time (30 fps,
+  one frame late) the true palm position, normal and finger direction
+  update the same filter, with the same settings, and the servo predicts
+  at most 0.1 s past the last update, as `servo_depth` does. It has no
+  detection errors and no occlusion, and ignores the image. Unlike the
+  teacher's privileged state it gets velocity from the filter, not the
+  truth. So `servo_gt_cam` − `servo_depth` is the cost of the classical
+  perception step (detection errors and occlusion) with the camera's
+  timing held equal.
+- **`blind`:** the same servo driving to a fixed pose and waiting. The pose
+  uses only what a controller may know without looking (the nominal
+  meeting point and the direction of the partner's base) plus the best
+  constant guess fitted on 30 training scenarios (`train_rngs`, disjoint
+  from evaluation): the mean offset of our meeting palm from the nominal
+  point and the chordal mean of its orientation, in the frame facing the
+  partner base.
+- **First look** (`first_look`, `first_look_wide`: validation seeds 0–11
+  per preset, **E**; a check that the baselines work, not a result):
+
+  | | `nominal` | `wide` |
+  | --- | --- | --- |
+  | `blind` | 0/12 successes (5 contacts, all > 15° off; 7 collisions) | 0/12 (2 contacts > 15° off, 9 collisions, 1 timeout) |
+  | `servo` | 11/12 (1 collision) | 11/12 (1 timeout) |
+  | `servo_depth` | 0/12 (3 contacts > 15° off, 8 collisions, 1 timeout) | 3/12 (9 collisions) |
+  | `servo_gt` | 10/12 (1 contact > 15° off, 1 collision) | 11/12 (1 timeout) |
+  | `servo_gt_cam` | 8/12 (4 collisions) | 9/12 (3 collisions) |
+
+  Meeting poses vary too much to guess: over the 30 training scenarios
+  the blind prior is fitted on, our meeting palm face lies 2–14 cm from the
+  nominal point, and finger directions differ by up to 179° between
+  scenarios (**E**), against tolerances of 5 cm and 15°. So
+  the task needs perception. But with a good pose estimate, a simple
+  reactive servo nearly always daps. Two consequences:
+  - Success does not require timing. The servo's contacts came 1.6 s early
+    to 0.6 s late against the partner's meeting time, and about a third
+    happened after the partner's palm had stopped. Timing is scored
+    (`time_err`) but neither required nor in the loss.
+  - The stand-in sensor (no latency, no occlusion) makes the classical
+    baseline strong. On the student's depth frames the same servo mostly
+    collides hand on hand. Most of the gap is the perception: fed the true
+    palm pose at the camera's capture times instead (`servo_gt_cam`), it
+    daps 8/12 and 9/12, and 7/12 and 8/12 when given it only on frames
+    where at least 15 partner points lie within 10 cm of the palm (**E**,
+    the latter a scratch diagnostic on the same validation seeds).
+    Camera timing and visibility cost a few successes; the perception
+    step costs most of the rest. On the frames of 16 `servo` trials on training scenarios,
+    65% of frames give a fix; of the fixes, 84% have the palm normal within
+    15° (median 3.2°), 69% the position within 5 cm (median 1.9 cm), and
+    15% the finger direction flipped. In 2 of the 16 trials the hand is
+    mostly hidden at the start and the tracker locks onto a plate-sized
+    patch of the partner's arm (**E**).
+  - Its design choices were first explored on evaluation seeds 0–15 (a
+    mistake) and then re-checked on training scenarios
+    (`dap.experiment.train_rngs`), where the final choices were made. Those
+    evaluation seeds are now spent (section 9). On them `servo_depth` had
+    daped 3/12 and 2/12; on the validation seeds above, which played no
+    part in its design, 0/12 and 3/12.
+- **Not built:** a plan-once variant of the servo. Freezing the current
+  partner estimate would be a strawman; a fair one needs a predictor of
+  where the partner's reach will end.
 
 ## 2. Scene and layout randomization (`dap/scene.py`, `dap/scenario.py`)
 
@@ -390,7 +533,7 @@ The camera is fixed relative to our base.
 | Clipping | 0.01–10 m | Drake default near (**V**); `manipulation` repo far (**V**) |
 | Mount | (−0.4, 0, 1.45) m in our base frame, looking at (0.7, 0, 0.6), so pitched about 38° down | RoboCasa cameras sit 0.5–0.6 m behind the base, 0.95–1.15 m up, pitched 26–35° down (**V**, recomputed from its camera quaternions). Fetch's head camera is 1.06–1.45 m above its base link, torso down to up (**E**, forward kinematics of the Fetch URDF). For scale, overall robot heights: HSR 1.005–1.35 m (**V**), TIAGo about 1.1–1.45 m (**S**). Those are robot heights, not camera heights |
 | Latency | 1 frame (33 ms) | **Ours**. Extreme Parkour uses a fixed 80 ms (**V**); Robot Parkour uses U[0.2, 0.26] s (**V**). HandoverSim notes that its timings leave out perception latency (**V**) |
-| Segmentation | Drake label image (label = body index) | Ground truth. This is a known simplification; see `docs/perception_pipeline.md` |
+| Segmentation | none for the pixel policy; `servo_depth` segments geometrically (`docs/perception_pipeline.md`) | The Drake label image (label = body index) is ground truth, used only by tests |
 
 **Other benchmarks, for comparison** (all **V**):
 
@@ -513,7 +656,7 @@ policy's input.
   | `obs_mode` | Keys | Partner information | Use |
   | --- | --- | --- | --- |
   | `pixels` | `proprio` (31), `depth` (3, H, W) | only what the camera sees | the end-to-end policy (student) |
-  | `privileged` | `state` (43) | true palm pose and velocity | teacher or critic, training only |
+  | `privileged` | `state` (43) | true palm pose and velocity, as of the newest delivered frame | teacher or critic, training only |
   | `state` | `state` (37) | stand-in sensor's Kalman estimate | modular variant |
   | `state+depth` | `state` (37), `depth` (1, H, W) | both of the above | legacy |
 
@@ -524,6 +667,21 @@ policy's input.
     true position, velocity, normal and finger direction. The same vector
     is in every step's `info["privileged"]`, so distillation can label
     pixel-mode rollouts with the teacher's input.
+  - **The partner part is latency-matched** (`privileged_delay=True`, the
+    default): it is the true state at the capture time of the newest depth
+    frame the `pixels` policy has received (`info["privileged_t"]`; before
+    the first delivery, the capture at t = 0). So it lags the present by
+    33–77 ms, like the student's newest frame (tested), and the privileged
+    env follows the camera's timing without rendering (its observation
+    equals the pixel env's `info["privileged"]`, tested).
+    `privileged_delay=False` gives the current state (e.g. for a critic).
+    **Ours**: a teacher acting on information the student cannot infer is
+    imitated only on average (the "imitation gap", Weihs et al. 2021). The
+    nearest precedent: Agarwal et al. (CoRL 2022) "simulate a latency of
+    40ms in both the phases of training" for their teacher–student "Noisy"
+    elevation-map baseline (Sec. 3, **V**); their main scandot teacher
+    states no latency. `info["partner_p"]`, `partner_v` and `partner_n`
+    stay current: they are ground truth for rewards, not an observation.
   - `depth`: metres, 0 = no return, from the head camera at `camera_scale`
     (default 0.25, giving 212×120) with `depth_noise` (default `med`) and
     one frame of latency. In `pixels` mode it is a stack of the
@@ -550,32 +708,52 @@ policy's input.
     each sampled scenario's layout, path parameters and IK knots; a reset
     rebuilds the scene and the partner's spline from them in tens of ms.
     Rebuilt scenarios are identical to the sampled ones (tested).
-  - **Training seeds never overlap evaluation seeds.** Banks are sampled
-    from `dap.experiment.train_rngs` (entropy `[seed, k, TRAIN_TAG]`);
-    experiments use `trial_rngs` (`[seed, k]`).
+  - **Banks are files, shared rather than rebuilt.** A bank is a pickle
+    in `banks/` (git-ignored; about 4.1 kB per scenario, **E**). It records what built it
+    (`provenance`: git commit, marked `-dirty` for uncommitted changes,
+    Drake, numpy and Python versions, platform), and `build_bank.py`
+    prints the file's SHA-256. Whether another machine or Drake version
+    samples the same scenarios from the same seeds is untested, so a
+    trained policy names its bank by SHA-256, and everyone trains on the
+    same file.
+  - **The Phase 2 training bank** (**E**, 2026-11-22):
+    `banks/train_nominal_20000.pkl`, `nominal`, training seeds 0–19999
+    (none skipped), built at commit `7660295` with Drake 1.58.0 on macOS
+    arm64; 82,418,716 bytes; SHA-256
+    `62136bc97350d68fc960452dbe66693d1160cc31172ed8ea954b2a1b5567bdda`.
+    It took 53 min of awake time with 8 workers. Three randomly chosen
+    scenarios match a fresh sample of their seed.
+  - **Training seeds never overlap validation or evaluation seeds**
+    (section 9, "Seed splits"). Banks and fresh env samples come from
+    `dap.experiment.train_rngs`. Sampling from `np_random` directly would
+    not do: numpy drops trailing zero words, so `default_rng([s, 0])` is
+    `default_rng(s)`, the stream `reset(seed=s)` gets (tested).
   - **Evaluation:** `reset(options={"trial_seed": s})` samples experiment
     seed `s` exactly as `run_trial` does, with its stand-in-sensor and
-    depth-noise streams, bypassing any bank.
+    depth-noise streams, bypassing any bank; `"split": "val"` replays
+    validation seed `s` instead.
   - Without a bank or a trial seed, a reset samples a fresh scenario from
-    `self.np_random`.
+    a training stream seeded by `self.np_random`.
 - **Scoring a policy** (`dap/policy_eval.py`): `run_policy_trial(cfg,
   cond, seed, policy)` runs the policy in an env with the experiment's
   timing, tolerances and preset (checked), records the trial's ground-truth
   log, and scores it with `dap.scoring.evaluate` and the same live/offline
   agreement check as `run_trial`. Rows have the same fields and covariates
-  as the planners', so `scripts/analyze.py` compares them on paired seeds.
+  as the baselines', so `scripts/analyze.py` compares them on paired seeds.
   A constant-velocity motion scored this way gives the same row as through
   `run_trial` (tested). A policy crash is a trial outcome, as for
   controllers. Privileged policies are refused unless explicitly allowed (a
   reference, not a method). From the command line:
   `scripts/run_experiment.py <config> --policy module:function --policy-name <label>`.
-- **Reward:** `reward_fn(info) -> float`, which returns 0 when not given. No
-  reward shaping yet. `info` carries ground truth: the event and success,
+- **Reward:** `reward_fn(info) -> float`, which returns 0 when not given.
+  The teacher's reward is the `dap.reward.DapReward` wrapper (the
+  evaluation loss at the episode's end, potential-based shaping, an
+  action-rate penalty; `docs/teacher_design.md`). `info` carries ground truth: the event and success,
   the section 1a geometry (`normal_gap`, `in_plane_offset`, `rot_err_deg`,
   `angle_err_deg`, `finger_err_deg`), face-center distance, clearance,
-  palm–palm distance, arm distance, partner pose and velocity, the
-  privileged vector, `t_meet`, the partner's peak speed and the scenario
-  id. Rewards are for learning only; results are always the harness scores.
+  palm–palm distance, arm distance, partner pose and velocity (current), the
+  privileged vector and the time its partner part is from, `t_meet`, the
+  partner's peak speed and the scenario id. Rewards are for learning only; results are always the harness scores.
 - **Determinism:** the scenario, sensor noise and depth noise come from
   `self.np_random`, or from the trial seed's streams when one is given.
   `gymnasium.utils.env_checker.check_env` passes with no warnings in every
@@ -591,7 +769,16 @@ policy's input.
   Without a bank, resets sample fresh scenarios: about 1.1 s on average
   with the camera, up to several seconds. Building a bank takes about
   0.25 s per scenario per worker (40 scenarios in 10 s with 8 workers).
-- The fitted policy uses supervised imitation. PyTorch is required for fitting. Evaluation uses NumPy. See the [policy training instructions](pixel_policy.md).
+- **Training dependencies** (`requirements.txt`): stable-baselines3
+  2.9.2, which requires `gymnasium>=0.29.1,<2`, `numpy<3` and
+  `torch>=2.8,<3` (its PyPI metadata, **V**); tested with torch 2.15.0
+  (CPU and MPS wheels for Apple silicon) and gymnasium 1.4.0. Drake and
+  torch load in one process, and SB3 PPO runs on the env in both
+  `privileged` and `pixels` modes (**E**, plumbing check only). SB3's
+  default `CombinedExtractor` flattens the float depth stack into an MLP
+  input, so the student needs its own CNN extractor (see above). Drake's
+  and the `manipulation` book's examples use SB3 PPO with
+  `SubprocVecEnv`.
 
 ## 9. Experiments and statistics (`dap/experiment.py`, `dap/stats.py`, `scripts/analyze.py`)
 
@@ -605,12 +792,46 @@ speed.
 
 | Config | Question | Conditions | Seeds |
 | --- | --- | --- | --- |
-| `smoke` | plumbing | replan | 3 |
-| `replan_vs_once` | H1: does replanning beat planning once? | {once, replan} × noise {0.5, 1, 2} | 150 |
-| `speed_limits` | H2: how does success fall with partner speed? | replan | 300 |
+| `smoke` | plumbing | `servo` | validation 0–2 |
+| `first_look`, `first_look_wide` | do the baselines work? (section 1b) | a baseline | validation 0–11 |
 
-`run_experiment.py --controller oracle|hold` runs the scripted references on
-the same seeds.
+The evaluation configs come with Phase 2 (`docs/phase2_plan.md`, item 8).
+Without `--controller`, `run_experiment.py` runs each condition's own
+controller (`Condition.planner`, a baseline name); `--controller
+hold|blind|servo|servo_depth|servo_gt|servo_gt_cam|oracle` runs one
+baseline or reference (section 1b) on the config's seeds instead.
+
+**Seed splits** (`dap.experiment.SPLITS`). Three splits, each with its own
+streams, and each used for one thing:
+
+| Split | Streams | Used for |
+| --- | --- | --- |
+| train | `train_rngs` | learning: scenario banks, fresh env scenarios, the `blind` prior |
+| val | `val_rngs` | everything decided by looking at results: development checks, design and hyperparameter choices, checkpoint selection, early stopping, the first-look table |
+| eval | `trial_rngs` | reported results only, from seed 1000 on |
+
+- **Disjoint at any number of seeds.** Evaluation streams have entropy
+  `[seed, k]` with seed < 2³² (enforced), at most two 32-bit words.
+  Training and validation streams have `[seed, k, TAG]` with two different
+  nonzero tags, so they are at least three words long and differ in the
+  last word, whatever the seed (fresh env scenarios draw training seeds up
+  to 2⁶³). No seed of one split reproduces another split's scenario, sensor
+  noise or depth noise (tested). Seed counts can grow by orders of magnitude
+  in every split without the splits meeting.
+- **Evaluation seeds below 1000 are spent.** Before the validation split
+  existed, development ran on evaluation seeds: 0–15 for the baselines and
+  the perception pipeline, and low seeds for the setup measurements marked
+  **E** in sections 1–7. Not every earlier measurement recorded its seeds,
+  so the cut-off sits well above every seed range we used. An evaluation config
+  cannot start below `EVAL_FIRST_SEED` = 1000 (enforced). Tests and the
+  regression lock still use low evaluation seeds; they make no decisions.
+- **One look per method.** A method is fixed (code, hyperparameters, the
+  checkpoint chosen on validation seeds) before it runs on evaluation seeds,
+  and the evaluation run is not used to change it. If it is changed anyway,
+  the next evaluation uses fresh seeds and the report says so. Evaluation
+  sizes are chosen in advance (sample sizes below).
+- **Paired across methods.** Every method in one comparison runs on the same
+  evaluation seeds, whatever its type (planner, baseline, policy).
 
 **Analysis** (`scripts/analyze.py`):
 - **Success rates** with 95% Wilson score intervals (Wilson 1927;
@@ -648,12 +869,14 @@ the same seeds.
 (α = 0.05) to detect a 10-point difference in success rate when about 20% of
 seeds are discordant (Connor 1987 sample-size formula: n ≈ 155). With 300
 seeds over five 0.15 m/s bins (about 60 per bin), each bin's 95% Wilson
-interval has a half-width of at most about 0.12. These sample-size calculations preceded the experiment. Observed discordant counts are in the [paired results](results/replan_vs_once/paired.csv).
+interval has a half-width of at most about 0.12. These are planning numbers;
+Phase 2 fixes its evaluation seed counts from validation pilot rates
+(`docs/phase2_plan.md`, item 8).
 
 ## 10. Methodology notes
 
 - **Filter model mismatch.** The estimator (`dap/estimator.py`) is a
-  constant-acceleration Kalman filter; the partner follows a min-jerk
+  constant-acceleration Kalman filter (Kalman 1960); the partner follows a min-jerk
   profile, whose acceleration changes sign mid-reach. The filter therefore
   lags a decelerating partner, and its velocity estimate is only roughly
   right mid-approach (`tests/test_estimator.py` tolerates 0.15 m/s for this
@@ -661,10 +884,12 @@ interval has a half-width of at most about 0.12. These sample-size calculations 
   any fixed motion model is misspecified; we accept this for now and treat
   the choice of motion model as an experimental variable for later.
 - **The stand-in sensor is idealized, and the pixel policy does not use
-  it.** `NoisyPoseSensor` gives ground-truth palm position and normal plus
-  i.i.d. Gaussian noise (5 mm, 2°), at 100 Hz, with no latency, no dropouts
-  and no occlusion. It feeds only the `state` modes and the planner
-  interface. The end-to-end policy (`pixels` mode, section 8) sees only its
+  it.** `NoisyPoseSensor` gives ground-truth palm position, normal and
+  finger direction plus i.i.d. Gaussian noise (5 mm, 2°), at 100 Hz, with no
+  latency, no dropouts
+  and no occlusion. It feeds only the `state` modes, the controller
+  interface and `servo` (`servo_depth` perceives from depth instead). The
+  end-to-end policy (`pixels` mode, section 8) sees only its
   own arm state and the head camera's depth frames (30 fps, one frame of
   latency, D435-style noise; sections 6–7), so the camera's limits,
   including our own hand occluding the partner near contact, are part of
@@ -673,7 +898,12 @@ interval has a half-width of at most about 0.12. These sample-size calculations 
 - **Privileged information is for training only.** The `privileged` mode
   and `info["privileged"]` carry ground truth for a teacher or critic. A
   privileged policy is a reference, like the oracle; `dap.policy_eval`
-  refuses to score one unless asked to.
+  refuses to score one unless asked to. Its partner state is as old as the
+  student's newest frame (section 8), so teacher vs. student measures the
+  cost of perceiving from depth, not of latency. `servo_gt` and the
+  stand-in sensor have no latency, so they are not latency-matched to the
+  teacher; `servo_gt_cam` is, though it estimates velocity with its filter
+  where the teacher gets the true velocity (section 1b).
 - **Speed is confounded with geometry at both ends** (section 4). Success
   vs. speed is observational; if needed, adjust for layout covariates
   (`layout_*`, `reachable_in_time`, all stored per trial), e.g. by logistic
@@ -685,14 +915,21 @@ interval has a half-width of at most about 0.12. These sample-size calculations 
 - **The oracle is a reference, not an upper bound.** It knows the scenario
   but does not avoid collisions and does not plan around its speed limits.
 
-## 11. Design choices for follow-up experiments
+## 11. Open decisions
 
-- **Loss weights and the success tolerance.** `rot_tol` (15°) and the loss
-  scales and weights (`LossWeights`) were fixed at the repository defaults for the study. Stored components allow a sensitivity analysis without rerunning controllers.
+- **What makes the task hard for a good controller?** With the stand-in
+  sensor, the servo nearly always succeeds on both presets; with
+  perception from the student's depth frames it rarely does (section 1b).
+  Other candidates: faster partners, mid-course switches.
+- **Settled:** the success tolerance, the timing question and the loss
+  weights (section 1b, 2026-11-22). Every component is stored per trial,
+  so a later change would only re-score, but it would need fresh
+  evaluation seeds (section 9).
 - **Camera position.** Centered behind our base gives realistic
   self-occlusion; an offset of about 0.2–0.3 m sideways would reduce it.
   Should camera position be an experimental axis?
-- **Segmentation.** Ground-truth labels vs. colour or geometric segmentation.
+- **Segmentation.** `servo_depth` segments geometrically (no labels); the
+  pixel policy gets no segmentation at all.
 - **Meeting type.** Only the opposed-parallel dap so far. The facing cone
   (45°) and the free rotation about the palm normal are the knobs for adding
   more.
@@ -726,6 +963,18 @@ itself, except where marked.
 - Wang et al. GenH2R. CVPR 2024, arXiv:2401.00929.
 - Christen et al. Learning human-to-robot handovers from point clouds. CVPR 2023, arXiv:2303.17592.
 
+**Control and estimation**
+- Whitney. Resolved motion rate control of manipulators and human prostheses. IEEE Trans. Man-Machine Syst. 10(2):47–53, 1969.
+- Nakamura, Hanafusa. Inverse kinematic solutions with singularity robustness for robot manipulator control. J. Dyn. Syst. Meas. Control 108(3):163–171, 1986.
+- Wampler. Manipulator inverse kinematic solutions based on vector formulations and damped least-squares methods. IEEE Trans. Syst. Man Cybern. 16(1):93–101, 1986.
+- Chaumette, Hutchinson. Visual servo control, Part I: basic approaches. IEEE Robot. Autom. Mag. 13(4):82–90, 2006.
+- Chaumette, Hutchinson. Visual servo control, Part II: advanced approaches. IEEE Robot. Autom. Mag. 14(1):109–118, 2007.
+- Kalman. A new approach to linear filtering and prediction problems. J. Basic Eng. 82(1):35–45, 1960.
+
+**Perception**
+- Fischler, Bolles. Random sample consensus: a paradigm for model fitting with applications to image analysis and automated cartography. Commun. ACM 24(6):381–395, 1981.
+- Torr, Zisserman. MLESAC: a new robust estimator with application to estimating image geometry. Comput. Vis. Image Underst. 78(1):138–156, 2000.
+
 **Depth sensing and noise**
 - Intel RealSense D400 Series Datasheet (Mar 2026); Intel, "Tuning depth cameras for best performance" (web whitepaper, accessed Nov 2026).
 - Nguyen, Izadi, Lovell. Modeling Kinect sensor noise for improved 3D reconstruction and tracking. 3DIMPVT 2012.
@@ -738,6 +987,8 @@ itself, except where marked.
 - Cheng et al. Extreme Parkour with legged robots. arXiv:2309.14341.
 
 **Pixel RL**
+- Agarwal, Kumar, Malik, Pathak. Legged locomotion in challenging terrains using egocentric vision. CoRL 2022, arXiv:2211.07638.
+- Weihs, Jain, Liu, Salvador, Lazebnik, Kembhavi, Schwing. Bridging the imitation gap by adaptive insubordination (ADVISOR). NeurIPS 2021, arXiv:2007.12173.
 - Yarats, Fergus, Lazaric, Pinto. Mastering visual continuous control: improved data-augmented reinforcement learning (DrQ-v2). arXiv:2107.09645, 2021; code: github.com/facebookresearch/drqv2 (`cfgs/config.yaml`: `frame_stack: 3`).
 
 **Simulation benchmarks:** ManiSkill3, robosuite, RoboCasa, LIBERO, RLBench, DROID (arXiv:2403.12945), DexYCB (arXiv:2104.04631), Habitat, Isaac Lab (github.com/isaac-sim/IsaacLab @ 892354c, `source/isaaclab_tasks/isaaclab_tasks/core/lift/lift_env_cfg.py`).

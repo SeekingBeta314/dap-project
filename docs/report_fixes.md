@@ -1,9 +1,9 @@
 # Report fixes (Overleaf draft)
 
-Record of the edits made to the Overleaf report on 2026-11-19 (sections A
-and B). The report compiles; the only warnings are the pre-existing
-undefined references to `fig:meeting` and `fig:replan` (figures the draft
-no longer has). Each citation fix was checked against the primary
+Record of the edits made to the Overleaf report: 2026-11-19 (sections A
+and B) and 2026-11-22 (section C). After section C the report compiles with
+no errors, undefined references or overfull boxes (only underfull lines in
+the bibliography). Each citation fix was checked against the primary
 source (PDF text, the IEEE Xplore abstract, or Crossref metadata).
 
 ## A. Citation fixes (applied 2026-11-19)
@@ -64,3 +64,40 @@ the code (docs/setup.md):
 Not changed: the method's estimation and meeting-point text, the results
 and discussion placeholders, the AI acknowledgment, and the undefined
 `fig:meeting` / `fig:replan` references.
+
+## C. Rewrite to the perception focus (applied 2026-11-22)
+
+The trajectory planner is no longer the project's focus (`docs/phase2_plan.md`),
+so everything after the author block except the AI acknowledgment was
+rewritten to the current setup and plan. The same changes went into the
+proposal doc.
+
+- **Title:** "... with Motion Planning" → "Angle and Alignment Matching for
+  Robotic Hands from Depth Images".
+- **Abstract, introduction, contributions:** the arm sees the partner only
+  through the head camera; perception is the bottleneck; the hypothesis is
+  that a depth policy distilled from a latency-matched privileged teacher
+  beats the classical depth pipeline on paired evaluation scenarios, with
+  the cost of perception and out-of-distribution results (`wide`) reported
+  separately. Planner hypotheses (H1, H2) removed.
+- **Related work:** adds Bäuml et al. 2010, Agile Catching (Abeyruwan et al.
+  2023), visual servoing (Chaumette & Hutchinson 2006, 2007; Whitney 1969;
+  Nakamura & Hanafusa 1986; Wampler 1986), Christen et al. 2019 and 2023,
+  GenH2R, and the teacher–student line (Chen et al. 2019; Ross et al. 2011;
+  Agarwal et al. 2022; Zhuang et al. 2023; Weihs et al. 2021).
+- **System and method:** the camera model; train / validation / evaluation
+  seed splits; the methods ladder (new Fig. `fig:methods` placeholder); the
+  classical depth baseline (`dap/perception.py`); the teacher and student
+  (details left as `\todo`). Meeting-point selection and trajectory
+  optimization removed, which also removes the undefined `fig:meeting` and
+  `fig:replan` references.
+- **Experiments:** presets, metrics, paired tests with Holm's correction,
+  and a baseline-check table (Table `tab:check`) with the validation-seed
+  numbers from `docs/setup.md` section 1b, labelled as a check, not a
+  result. The results table and figures now compare methods instead of
+  plan-once vs. replan.
+- **Bibliography:** 27 entries. Bibliographic details were checked against
+  Crossref (DOIs, volumes, pages, author initials) or the arXiv listings in
+  `research_notes/`; Holm 1979 has no DOI and is cited as in
+  `docs/setup.md`.
+

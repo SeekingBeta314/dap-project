@@ -1,7 +1,7 @@
 """Summarize one experiment's trials.jsonl (paired analysis).
 
-    python scripts/analyze.py results/replan_vs_once
-    python scripts/analyze.py results/speed_limits --speed-bins 0.15,0.3,0.45,0.6,0.75,0.9
+    python scripts/analyze.py results/first_look_servo_depth
+    python scripts/analyze.py results/<name> --speed-bins 0.15,0.3,0.45,0.6,0.75,0.9
 
 Writes to <dir>/:
   summary.csv    per condition: trials, crash counts by kind, success /

@@ -3,9 +3,9 @@
     result = run_policy_trial(cfg, Condition("student", 1.0), seed, policy)
 
 The policy acts through the RL env (dap/envs), which shares the trial's arm
-limits, event rule and horizon (dap.trial). The env replays experiment seed
-`seed` (`reset(options={"trial_seed": seed})`: the same scenario, sensor and
-depth-noise streams as dap.trial.run_trial), records the trial's
+limits, event rule and horizon (dap.trial). The env replays seed `seed` of
+the config's split (`reset(options={"trial_seed": seed, "split": cfg.split})`:
+the same scenario, sensor and depth-noise streams as dap.trial.run_trial), records the trial's
 ground-truth log, and the log is scored by dap.scoring.evaluate with the
 same live/offline agreement check. The resulting TrialResult rows have the
 same fields and covariates as a planner's, so scripts/analyze.py compares
@@ -17,18 +17,16 @@ A policy is any object with
     reset()                # optional, called at the start of every trial
 
 `cond.noise_scale` scales the stand-in pose sensor ("state" modes); it does
-not change the depth noise a pixel policy sees.
+not change the depth noise a pixel policy sees. `n_steps`, `step_ms_*` and
+`n_bad_commands` count policy calls (20 Hz), not 100 Hz controller steps.
 """
 
 import time
-import traceback
-
-import numpy as np
 
 from dap.envs.dap_env import DapEnv
 from dap.experiment import Condition, ExperimentConfig
 from dap.metrics import TrialResult
-from dap.trial import record_scenario, score_log
+from dap.trial import record_crash, record_scenario, record_timing, score_log
 
 
 def make_eval_env(cfg: ExperimentConfig, cond: Condition, obs_mode, **env_kwargs):
@@ -66,13 +64,11 @@ def run_policy_trial(cfg: ExperimentConfig, cond: Condition, seed: int, policy, 
 
     result = TrialResult(seed=seed, planner=cond.planner, noise_scale=cond.noise_scale)
     wall0 = time.perf_counter()
-    obs, _ = env.reset(options={"trial_seed": int(seed)})
+    obs, _ = env.reset(options={"trial_seed": int(seed), "split": cfg.split})
     record_scenario(result, env.scenario)
 
     def policy_crashed(what):
-        result.outcome, result.error_kind = "error", "controller"
-        result.error = f"{what}:\n{traceback.format_exc(limit=5)}"
-        result.wall_time_s = time.perf_counter() - wall0
+        record_crash(result, what, wall0)
         return (result, env.log) if return_log else result
 
     if hasattr(policy, "reset"):
@@ -95,10 +91,5 @@ def run_policy_trial(cfg: ExperimentConfig, cond: Condition, seed: int, policy, 
 
     result.n_bad_commands = env.n_bad_actions
     score_log(result, env.log, env.motion, cfg.tolerances, env.v_max, env.event)
-    result.n_steps = len(step_ms)
-    if step_ms:
-        result.step_ms_mean = float(np.mean(step_ms))
-        result.step_ms_p95 = float(np.percentile(step_ms, 95))
-        result.step_ms_max = float(np.max(step_ms))
-    result.wall_time_s = time.perf_counter() - wall0
+    record_timing(result, step_ms, wall0)
     return (result, env.log) if return_log else result
