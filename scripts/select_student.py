@@ -44,6 +44,42 @@ def best(results):
     return max(results, key=lambda r: (r["successes"], -r["mean_loss"]))["name"]
 
 
+def initial_diagnostic(runs):
+    """Pose and action errors on a fixed sample of the provisional student's training visits."""
+    import torch
+    from dap.student import load_student
+    model = load_student(runs / "warm.pt")
+    torch.set_num_threads(1)
+    paths = sorted((runs / "dagger").glob("[0-9]"*8 + ".npz"))[::32]
+    errors = {"first_two": [], "middle": [], "last_three": []}
+    for path in paths:
+        with np.load(path, allow_pickle=False) as row:
+            state = torch.from_numpy(row["privileged"])
+            with torch.inference_mode():
+                est, act = model.predict(torch.from_numpy(row["depth"]), state[:, :31])
+                ref = model.action(state[:, :31], state[:, 31:])
+        truth = state[:, 31:]
+        pos = (est[:, :3] - truth[:, :3]).norm(dim=1)
+        def angle(index):
+            cosine = (est[:, index] * truth[:, index]).sum(1).clamp(-1., 1.)
+            return torch.rad2deg(torch.arccos(cosine))
+        metrics = torch.stack([pos, angle(slice(6, 9)), angle(slice(9, 12)),
+                               (act - ref).square().mean(1)], dim=1).numpy()
+        for i, values in enumerate(metrics):
+            phase = "first_two" if i < 2 else "last_three" if i >= len(metrics)-3 else "middle"
+            errors[phase].append(values)
+    out = {"train_seeds": [int(p.stem) for p in paths], "rollout": "warm",
+           "teacher": "initial-actor", "split": "training"}
+    for phase, values in errors.items():
+        data = np.array(values)
+        summary = {"n": len(data), "action_rmse": float(np.sqrt(data[:, 3].mean()))}
+        for i, key in enumerate(["position_m", "normal_degrees", "finger_degrees"]):
+            summary[key] = {"median": float(np.median(data[:, i])),
+                            "p80": float(np.quantile(data[:, i], .8))}
+        out[phase] = summary
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("stage", choices=("confirm", "publish"))
@@ -114,6 +150,8 @@ def main():
         datasets[name] = {**manifest, "episodes": len(paths), "labeled_states": frames,
                           "first_seed": int(paths[0].stem), "last_seed": int(paths[-1].stem)}
     (archive / "datasets.json").write_text(json.dumps(datasets, indent=2) + "\n")
+    (archive / "initial_diagnostic.json").write_text(json.dumps(initial_diagnostic(runs), indent=2)
+                                                   + "\n")
 
 
 if __name__ == "__main__":

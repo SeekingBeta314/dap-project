@@ -14,6 +14,63 @@ The planned selection candidates use the same selected teacher: a fit on the ini
 
 ## Follow-up to the initial validation failure
 
-The provisional student achieved 2 aligned contacts on the 64 selection scenarios. In 48 of its own training-stream rollouts, the median estimated position error was about 6–7 cm and mid-reach finger-axis error exceeded 110° at the 80th percentile. This motivated a second architecture that learns an image heatmap for the palm, uses camera calibration to convert the estimated image location and depth into a world position, and reads an image patch centered on the palm. It learns the finger axis and its sign separately. All camera observations, teacher labels and evaluation rules are shared with the first architecture.
+The provisional student achieved 2 aligned contacts on the 64 selection scenarios. A diagnostic sampled every 32nd trajectory from the completed set of 1,536 learner rollouts. Across the 877 middle steps of these 48 training episodes, median palm-position error was 9.1 cm and median finger-axis error was 54.5°. The 80th-percentile finger error was 127.3°. This motivated a second architecture that learns an image heatmap for the palm, uses camera calibration to convert the estimated image location and depth into a world position, and reads an image patch centered on the palm. It learns the finger axis and its sign separately. All camera observations, teacher labels and evaluation rules are shared with the first architecture.
 
 The follow-up has two candidates: a fit using the initial demonstration and learner-trajectory sets and a fit after visiting further training scenarios with this spatial model. We choose within each architecture on nominal validation seeds 300–363. The winners are compared on the same fresh nominal validation seeds 400–463. We freeze the model with more aligned contacts there, resolving ties by lower mean benchmark loss. These two cohorts serve model selection and remain separate from the final evaluation.
+
+## Reproduce the training
+
+Run the following commands from the repository root after installing the project requirements. The collection and validation commands use Drake. The fitting commands can use the same Python environment or another environment with NumPy and PyTorch. GPU fitting used PyTorch 2.5.1+cu121. Set `device=cpu` to fit without a GPU. Floating-point kernels can vary across hardware. The released model and archived rollout policies allow direct replay.
+
+```bash
+set -e
+S=banks/reproduce-student
+PY=.venv/bin/python
+FITPY=.venv/bin/python
+device=cuda
+workers=8
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+mkdir -p "$S"
+
+collect() {
+  "$PY" scripts/train_student.py collect --workers "$workers" --out "$S/$1" \
+    --rollout "$2" --first "$3" --count "$4" "${@:5}"
+}
+fit() {
+  "$FITPY" scripts/train_student.py fit --out "$S/$1.pt" --device "$device" "${@:2}"
+}
+validate() {
+  "$PY" scripts/train_student.py validate --checkpoint "$S/$1.pt" --workers "$workers" \
+    --first 300 --count 64 --out "$S/$2.json"
+}
+
+collect warm expert 0 2304
+collect ik ik 10000 768 --checkpoint models/policies/depth.npz
+cp docs/perception_results/training/student/behavior/initial-actor.pt "$S/initial-actor.pt"
+"$PY" scripts/train_student.py export-teacher --checkpoint models/policies/teacher --out "$S/final-actor.pt"
+
+fit pose --data "$S/warm" --epochs 24 --batch-size 192
+fit warm --data "$S/warm" "$S/ik" --init "$S/pose.pt" \
+  --teacher "$S/initial-actor.pt" --epochs 8 --batch-size 192 --lr .0004
+validate warm initial-val
+collect dagger student 20000 1536 --checkpoint "$S/warm.pt"
+fit finalwarm --data "$S/warm" "$S/ik" --init "$S/warm.pt" \
+  --teacher "$S/final-actor.pt" --epochs 6 --batch-size 192 --lr .0003
+fit round1 --data "$S/warm" "$S/ik" "$S/dagger" --init "$S/finalwarm.pt" \
+  --teacher "$S/final-actor.pt" --epochs 12 --batch-size 192 --lr .00035
+collect second student 30000 1152 --checkpoint "$S/round1.pt"
+fit round2 --data "$S/warm" "$S/ik" "$S/dagger" "$S/second" --init "$S/round1.pt" \
+  --teacher "$S/final-actor.pt" --epochs 10 --batch-size 192 --lr .0002
+
+fit spatial --architecture spatial --data "$S/warm" "$S/ik" "$S/dagger" \
+  --teacher "$S/final-actor.pt" --epochs 26 --batch-size 160 --lr .00065 --shift 0
+collect spatialdata student 40000 768 --checkpoint "$S/spatial.pt"
+fit spatial2 --architecture spatial --data "$S/warm" "$S/ik" "$S/dagger" "$S/spatialdata" \
+  --init "$S/spatial.pt" --teacher "$S/final-actor.pt" --epochs 12 --batch-size 160 --lr .00025 --shift 0
+
+for name in finalwarm round1 round2 spatial spatial2; do validate "$name" "val-$name"; done
+"$PY" scripts/select_student.py confirm --runs "$S" --workers "$workers"
+"$PY" scripts/select_student.py publish --runs "$S" --checkpoint "$S/selected.pt" --archive "$S/archive"
+```
+
+To regenerate a recorded collection with the exact policy that generated it, give `collect` the corresponding released checkpoint from `behavior/` or `models/policies/student.pt` if that policy won. The published demonstration checkpoint used for `ik` is `models/policies/depth.npz`. The original runs partitioned the same seed ranges into disjoint parallel jobs and merged their per-episode files in seed order.
