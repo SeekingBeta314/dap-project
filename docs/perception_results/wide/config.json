@@ -1,0 +1,755 @@
+{
+  "config": {
+    "name": "perception_wide",
+    "planners": [
+      "student",
+      "servo_depth",
+      "teacher",
+      "servo_gt_cam",
+      "servo_gt",
+      "servo",
+      "blind",
+      "oracle"
+    ],
+    "noise_scales": [
+      1.0
+    ],
+    "n_seeds": 172,
+    "split": "eval",
+    "first_seed": 1000,
+    "scenario": "wide",
+    "dt": 0.01,
+    "t_extra": 1.0,
+    "tolerances": {
+      "touch_dist": 0.002,
+      "rot_tol": 15.0
+    },
+    "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+    "extra": {}
+  },
+  "methods": {
+    "student": {
+      "camera": {
+        "clip_far": 10.0,
+        "clip_near": 0.01,
+        "fov_y_deg": 58.0,
+        "fps": 30.0,
+        "height": 120,
+        "label": true,
+        "latency_frames": 1,
+        "name": "head_camera",
+        "position": [
+          -0.4,
+          0.0,
+          1.45
+        ],
+        "rgb": false,
+        "target": [
+          0.7,
+          0.0,
+          0.6
+        ],
+        "width": 212,
+        "z_far": 3.0,
+        "z_near": 0.195
+      },
+      "checkpoints": {
+        "weights": "acc1952951026802b488b52c9391b8c0327ada9e912de9c46a27857f24af1d62"
+      },
+      "config": {
+        "dt": 0.01,
+        "extra": {},
+        "first_seed": 1000,
+        "n_seeds": 172,
+        "name": "perception_wide",
+        "noise_scales": [
+          1.0
+        ],
+        "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+        "planners": [
+          "student",
+          "servo_depth",
+          "teacher",
+          "servo_gt_cam",
+          "servo_gt",
+          "servo",
+          "blind",
+          "oracle"
+        ],
+        "scenario": "wide",
+        "split": "eval",
+        "t_extra": 1.0,
+        "tolerances": {
+          "rot_tol": 15.0,
+          "touch_dist": 0.002
+        }
+      },
+      "depth_noise": "med",
+      "git": "a86b7b5e82a0bc0179cbc2a8dd563e530d8bc6e5",
+      "method": "student",
+      "scenario_archive": "13f3256e7fb46a86237e8acfd3206d2e9a36857e32035666ebc328b0b43b6c19",
+      "sources": {
+        "dap/bank.py": "a77278af1ccd373824ca47e89863727e19dfcb8754cf370c4baecf7b3652977e",
+        "dap/baselines.py": "dedecfc87a8e65d48469007dbb8e133f47f9ef2d83fdcb2fc7fc229b3559efa6",
+        "dap/camera.py": "a5a181ed973074e30c3905c54cd1157adea31c82bfd835ed879651ec5ea05891",
+        "dap/depth_noise.py": "301645d7cf1f9b83b81283527f7608c9602220dda67b820f77feec46d13e2ed2",
+        "dap/envs/dap_env.py": "01a9ac8af8935cdd2c8747e00a3be894b479554d354b454085aaaa0703eba8cc",
+        "dap/estimator.py": "8d2fad8260866fad1b89c6cc9504a777c7464fdc9525d0747c02d7861b7a88cb",
+        "dap/eval_scenarios.py": "d06549d0fe2d8989c2c6f18415d805b79d5b1d712642e612813d3c235bdba16c",
+        "dap/experiment.py": "895c0f9b17739f093af1c2556f7e9581dbdb63a66f4491b81b21d0a21d19100d",
+        "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+        "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+        "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+        "dap/partner.py": "668630c62a77a8c58f6c8dadd5e01440a33ebf55c56208d613412b6e648e207c",
+        "dap/perception.py": "e1ff3071666bdb6ca61808928afa8d1bea8841b6da6859473a39e54519811926",
+        "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+        "dap/policy_eval.py": "aedea8e88780c1faa40cbf36ed49d06f713ca84d33c2ad8a135585419acede02",
+        "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+        "dap/scene.py": "da3c593b38d936776d150acbf2326fe6555355e774f76cd018a3c3cdc41fb1fe",
+        "dap/scoring.py": "2914ea5546d03a8d950503d5d31a114bec328c9fbaf968d3f86ca3cef43c1828",
+        "dap/student.py": "9889c197d593b54ed5acf3d997e7ed29ce4f99cffa5fed381224dce2a7840de9",
+        "dap/trial.py": "049f1424a44dbced9156bdf29c534d1466940a1bff86a5af8f9596b8b1c6dd52",
+        "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+        "scripts/run_experiment.py": "200fe262cb8eae435351e7c82d52b0c91e5a4cd40937f473a5035fbf3cac1737",
+        "scripts/run_perception_study.py": "ef831eadbfce0fdbb97e187c9bc14a941781bc1faf9c60be57a363d1ceab9c50",
+        "dap/student_spatial.py": "b783dcabe8fe28b5d4e9feca77627d256e4661fe8affe50d980bb397dce662a4"
+      },
+      "versions": {
+        "drake": "1.58.0",
+        "gymnasium": "1.4.0",
+        "numpy": "2.5.5",
+        "scipy": "1.18.1",
+        "torch": "2.8.0+cpu"
+      }
+    },
+    "servo_depth": {
+      "camera": {
+        "clip_far": 10.0,
+        "clip_near": 0.01,
+        "fov_y_deg": 58.0,
+        "fps": 30.0,
+        "height": 120,
+        "label": true,
+        "latency_frames": 1,
+        "name": "head_camera",
+        "position": [
+          -0.4,
+          0.0,
+          1.45
+        ],
+        "rgb": false,
+        "target": [
+          0.7,
+          0.0,
+          0.6
+        ],
+        "width": 212,
+        "z_far": 3.0,
+        "z_near": 0.195
+      },
+      "checkpoints": {},
+      "config": {
+        "dt": 0.01,
+        "extra": {},
+        "first_seed": 1000,
+        "n_seeds": 172,
+        "name": "perception_wide",
+        "noise_scales": [
+          1.0
+        ],
+        "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+        "planners": [
+          "student",
+          "servo_depth",
+          "teacher",
+          "servo_gt_cam",
+          "servo_gt",
+          "servo",
+          "blind",
+          "oracle"
+        ],
+        "scenario": "wide",
+        "split": "eval",
+        "t_extra": 1.0,
+        "tolerances": {
+          "rot_tol": 15.0,
+          "touch_dist": 0.002
+        }
+      },
+      "depth_noise": "med",
+      "git": "8cfe81fa6a185cfb2f0aca175c1243033bf3c955",
+      "method": "servo_depth",
+      "scenario_archive": "13f3256e7fb46a86237e8acfd3206d2e9a36857e32035666ebc328b0b43b6c19",
+      "sources": {
+        "dap/bank.py": "a77278af1ccd373824ca47e89863727e19dfcb8754cf370c4baecf7b3652977e",
+        "dap/baselines.py": "dedecfc87a8e65d48469007dbb8e133f47f9ef2d83fdcb2fc7fc229b3559efa6",
+        "dap/camera.py": "a5a181ed973074e30c3905c54cd1157adea31c82bfd835ed879651ec5ea05891",
+        "dap/depth_noise.py": "301645d7cf1f9b83b81283527f7608c9602220dda67b820f77feec46d13e2ed2",
+        "dap/envs/dap_env.py": "01a9ac8af8935cdd2c8747e00a3be894b479554d354b454085aaaa0703eba8cc",
+        "dap/estimator.py": "8d2fad8260866fad1b89c6cc9504a777c7464fdc9525d0747c02d7861b7a88cb",
+        "dap/eval_scenarios.py": "d06549d0fe2d8989c2c6f18415d805b79d5b1d712642e612813d3c235bdba16c",
+        "dap/experiment.py": "895c0f9b17739f093af1c2556f7e9581dbdb63a66f4491b81b21d0a21d19100d",
+        "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+        "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+        "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+        "dap/partner.py": "668630c62a77a8c58f6c8dadd5e01440a33ebf55c56208d613412b6e648e207c",
+        "dap/perception.py": "e1ff3071666bdb6ca61808928afa8d1bea8841b6da6859473a39e54519811926",
+        "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+        "dap/policy_eval.py": "aedea8e88780c1faa40cbf36ed49d06f713ca84d33c2ad8a135585419acede02",
+        "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+        "dap/scene.py": "da3c593b38d936776d150acbf2326fe6555355e774f76cd018a3c3cdc41fb1fe",
+        "dap/scoring.py": "2914ea5546d03a8d950503d5d31a114bec328c9fbaf968d3f86ca3cef43c1828",
+        "dap/trial.py": "049f1424a44dbced9156bdf29c534d1466940a1bff86a5af8f9596b8b1c6dd52",
+        "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+        "scripts/run_experiment.py": "200fe262cb8eae435351e7c82d52b0c91e5a4cd40937f473a5035fbf3cac1737",
+        "scripts/run_perception_study.py": "ef831eadbfce0fdbb97e187c9bc14a941781bc1faf9c60be57a363d1ceab9c50"
+      },
+      "versions": {
+        "drake": "1.58.0",
+        "gymnasium": "1.4.0",
+        "numpy": "2.5.5",
+        "scipy": "1.18.1"
+      }
+    },
+    "teacher": {
+      "camera": {
+        "clip_far": 10.0,
+        "clip_near": 0.01,
+        "fov_y_deg": 58.0,
+        "fps": 30.0,
+        "height": 120,
+        "label": true,
+        "latency_frames": 1,
+        "name": "head_camera",
+        "position": [
+          -0.4,
+          0.0,
+          1.45
+        ],
+        "rgb": false,
+        "target": [
+          0.7,
+          0.0,
+          0.6
+        ],
+        "width": 212,
+        "z_far": 3.0,
+        "z_near": 0.195
+      },
+      "checkpoints": {
+        ".norm.pkl": "9353ddde3318c2e55ef74640570b936fbd3bb8abbd299b235e683ef44663a285",
+        ".zip": "7ff56406e680636c3af55ecdbf4f74739dcf563bc92e3cc2db05a5d50911c1c9"
+      },
+      "config": {
+        "dt": 0.01,
+        "extra": {},
+        "first_seed": 1000,
+        "n_seeds": 172,
+        "name": "perception_wide",
+        "noise_scales": [
+          1.0
+        ],
+        "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+        "planners": [
+          "student",
+          "servo_depth",
+          "teacher",
+          "servo_gt_cam",
+          "servo_gt",
+          "servo",
+          "blind",
+          "oracle"
+        ],
+        "scenario": "wide",
+        "split": "eval",
+        "t_extra": 1.0,
+        "tolerances": {
+          "rot_tol": 15.0,
+          "touch_dist": 0.002
+        }
+      },
+      "depth_noise": "med",
+      "git": "e467f20987b5d01bd68ee37060ffbf0940c9e8f7",
+      "method": "teacher",
+      "scenario_archive": "13f3256e7fb46a86237e8acfd3206d2e9a36857e32035666ebc328b0b43b6c19",
+      "sources": {
+        "dap/bank.py": "a77278af1ccd373824ca47e89863727e19dfcb8754cf370c4baecf7b3652977e",
+        "dap/baselines.py": "dedecfc87a8e65d48469007dbb8e133f47f9ef2d83fdcb2fc7fc229b3559efa6",
+        "dap/camera.py": "a5a181ed973074e30c3905c54cd1157adea31c82bfd835ed879651ec5ea05891",
+        "dap/depth_noise.py": "301645d7cf1f9b83b81283527f7608c9602220dda67b820f77feec46d13e2ed2",
+        "dap/envs/dap_env.py": "01a9ac8af8935cdd2c8747e00a3be894b479554d354b454085aaaa0703eba8cc",
+        "dap/estimator.py": "8d2fad8260866fad1b89c6cc9504a777c7464fdc9525d0747c02d7861b7a88cb",
+        "dap/eval_scenarios.py": "d06549d0fe2d8989c2c6f18415d805b79d5b1d712642e612813d3c235bdba16c",
+        "dap/experiment.py": "895c0f9b17739f093af1c2556f7e9581dbdb63a66f4491b81b21d0a21d19100d",
+        "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+        "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+        "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+        "dap/partner.py": "668630c62a77a8c58f6c8dadd5e01440a33ebf55c56208d613412b6e648e207c",
+        "dap/perception.py": "e1ff3071666bdb6ca61808928afa8d1bea8841b6da6859473a39e54519811926",
+        "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+        "dap/policy_eval.py": "aedea8e88780c1faa40cbf36ed49d06f713ca84d33c2ad8a135585419acede02",
+        "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+        "dap/scene.py": "da3c593b38d936776d150acbf2326fe6555355e774f76cd018a3c3cdc41fb1fe",
+        "dap/scoring.py": "2914ea5546d03a8d950503d5d31a114bec328c9fbaf968d3f86ca3cef43c1828",
+        "dap/teacher.py": "65924ebb7bfd47dc4cdfaaefcfd376893e62154e839fd08cdf26bef2cbc5f53b",
+        "dap/trial.py": "049f1424a44dbced9156bdf29c534d1466940a1bff86a5af8f9596b8b1c6dd52",
+        "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+        "scripts/run_experiment.py": "200fe262cb8eae435351e7c82d52b0c91e5a4cd40937f473a5035fbf3cac1737",
+        "scripts/run_perception_study.py": "ef831eadbfce0fdbb97e187c9bc14a941781bc1faf9c60be57a363d1ceab9c50"
+      },
+      "versions": {
+        "drake": "1.58.0",
+        "gymnasium": "1.4.0",
+        "numpy": "2.5.5",
+        "scipy": "1.18.1",
+        "stable_baselines3": "2.9.2",
+        "torch": "2.8.0+cpu"
+      }
+    },
+    "servo_gt_cam": {
+      "camera": {
+        "clip_far": 10.0,
+        "clip_near": 0.01,
+        "fov_y_deg": 58.0,
+        "fps": 30.0,
+        "height": 120,
+        "label": true,
+        "latency_frames": 1,
+        "name": "head_camera",
+        "position": [
+          -0.4,
+          0.0,
+          1.45
+        ],
+        "rgb": false,
+        "target": [
+          0.7,
+          0.0,
+          0.6
+        ],
+        "width": 212,
+        "z_far": 3.0,
+        "z_near": 0.195
+      },
+      "checkpoints": {},
+      "config": {
+        "dt": 0.01,
+        "extra": {},
+        "first_seed": 1000,
+        "n_seeds": 172,
+        "name": "perception_wide",
+        "noise_scales": [
+          1.0
+        ],
+        "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+        "planners": [
+          "student",
+          "servo_depth",
+          "teacher",
+          "servo_gt_cam",
+          "servo_gt",
+          "servo",
+          "blind",
+          "oracle"
+        ],
+        "scenario": "wide",
+        "split": "eval",
+        "t_extra": 1.0,
+        "tolerances": {
+          "rot_tol": 15.0,
+          "touch_dist": 0.002
+        }
+      },
+      "depth_noise": "med",
+      "git": "8cfe81fa6a185cfb2f0aca175c1243033bf3c955",
+      "method": "servo_gt_cam",
+      "scenario_archive": "13f3256e7fb46a86237e8acfd3206d2e9a36857e32035666ebc328b0b43b6c19",
+      "sources": {
+        "dap/bank.py": "a77278af1ccd373824ca47e89863727e19dfcb8754cf370c4baecf7b3652977e",
+        "dap/baselines.py": "dedecfc87a8e65d48469007dbb8e133f47f9ef2d83fdcb2fc7fc229b3559efa6",
+        "dap/camera.py": "a5a181ed973074e30c3905c54cd1157adea31c82bfd835ed879651ec5ea05891",
+        "dap/depth_noise.py": "301645d7cf1f9b83b81283527f7608c9602220dda67b820f77feec46d13e2ed2",
+        "dap/envs/dap_env.py": "01a9ac8af8935cdd2c8747e00a3be894b479554d354b454085aaaa0703eba8cc",
+        "dap/estimator.py": "8d2fad8260866fad1b89c6cc9504a777c7464fdc9525d0747c02d7861b7a88cb",
+        "dap/eval_scenarios.py": "d06549d0fe2d8989c2c6f18415d805b79d5b1d712642e612813d3c235bdba16c",
+        "dap/experiment.py": "895c0f9b17739f093af1c2556f7e9581dbdb63a66f4491b81b21d0a21d19100d",
+        "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+        "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+        "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+        "dap/partner.py": "668630c62a77a8c58f6c8dadd5e01440a33ebf55c56208d613412b6e648e207c",
+        "dap/perception.py": "e1ff3071666bdb6ca61808928afa8d1bea8841b6da6859473a39e54519811926",
+        "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+        "dap/policy_eval.py": "aedea8e88780c1faa40cbf36ed49d06f713ca84d33c2ad8a135585419acede02",
+        "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+        "dap/scene.py": "da3c593b38d936776d150acbf2326fe6555355e774f76cd018a3c3cdc41fb1fe",
+        "dap/scoring.py": "2914ea5546d03a8d950503d5d31a114bec328c9fbaf968d3f86ca3cef43c1828",
+        "dap/trial.py": "049f1424a44dbced9156bdf29c534d1466940a1bff86a5af8f9596b8b1c6dd52",
+        "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+        "scripts/run_experiment.py": "200fe262cb8eae435351e7c82d52b0c91e5a4cd40937f473a5035fbf3cac1737",
+        "scripts/run_perception_study.py": "ef831eadbfce0fdbb97e187c9bc14a941781bc1faf9c60be57a363d1ceab9c50"
+      },
+      "versions": {
+        "drake": "1.58.0",
+        "gymnasium": "1.4.0",
+        "numpy": "2.5.5",
+        "scipy": "1.18.1"
+      }
+    },
+    "servo_gt": {
+      "camera": {
+        "clip_far": 10.0,
+        "clip_near": 0.01,
+        "fov_y_deg": 58.0,
+        "fps": 30.0,
+        "height": 120,
+        "label": true,
+        "latency_frames": 1,
+        "name": "head_camera",
+        "position": [
+          -0.4,
+          0.0,
+          1.45
+        ],
+        "rgb": false,
+        "target": [
+          0.7,
+          0.0,
+          0.6
+        ],
+        "width": 212,
+        "z_far": 3.0,
+        "z_near": 0.195
+      },
+      "checkpoints": {},
+      "config": {
+        "dt": 0.01,
+        "extra": {},
+        "first_seed": 1000,
+        "n_seeds": 172,
+        "name": "perception_wide",
+        "noise_scales": [
+          1.0
+        ],
+        "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+        "planners": [
+          "student",
+          "servo_depth",
+          "teacher",
+          "servo_gt_cam",
+          "servo_gt",
+          "servo",
+          "blind",
+          "oracle"
+        ],
+        "scenario": "wide",
+        "split": "eval",
+        "t_extra": 1.0,
+        "tolerances": {
+          "rot_tol": 15.0,
+          "touch_dist": 0.002
+        }
+      },
+      "depth_noise": "med",
+      "git": "a9fb3ffab42f171eefdd5d4afcb3d08ae5f17541",
+      "method": "servo_gt",
+      "scenario_archive": "13f3256e7fb46a86237e8acfd3206d2e9a36857e32035666ebc328b0b43b6c19",
+      "sources": {
+        "dap/bank.py": "a77278af1ccd373824ca47e89863727e19dfcb8754cf370c4baecf7b3652977e",
+        "dap/baselines.py": "dedecfc87a8e65d48469007dbb8e133f47f9ef2d83fdcb2fc7fc229b3559efa6",
+        "dap/camera.py": "a5a181ed973074e30c3905c54cd1157adea31c82bfd835ed879651ec5ea05891",
+        "dap/depth_noise.py": "301645d7cf1f9b83b81283527f7608c9602220dda67b820f77feec46d13e2ed2",
+        "dap/envs/dap_env.py": "01a9ac8af8935cdd2c8747e00a3be894b479554d354b454085aaaa0703eba8cc",
+        "dap/estimator.py": "8d2fad8260866fad1b89c6cc9504a777c7464fdc9525d0747c02d7861b7a88cb",
+        "dap/eval_scenarios.py": "d06549d0fe2d8989c2c6f18415d805b79d5b1d712642e612813d3c235bdba16c",
+        "dap/experiment.py": "895c0f9b17739f093af1c2556f7e9581dbdb63a66f4491b81b21d0a21d19100d",
+        "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+        "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+        "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+        "dap/partner.py": "668630c62a77a8c58f6c8dadd5e01440a33ebf55c56208d613412b6e648e207c",
+        "dap/perception.py": "e1ff3071666bdb6ca61808928afa8d1bea8841b6da6859473a39e54519811926",
+        "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+        "dap/policy_eval.py": "aedea8e88780c1faa40cbf36ed49d06f713ca84d33c2ad8a135585419acede02",
+        "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+        "dap/scene.py": "da3c593b38d936776d150acbf2326fe6555355e774f76cd018a3c3cdc41fb1fe",
+        "dap/scoring.py": "2914ea5546d03a8d950503d5d31a114bec328c9fbaf968d3f86ca3cef43c1828",
+        "dap/trial.py": "049f1424a44dbced9156bdf29c534d1466940a1bff86a5af8f9596b8b1c6dd52",
+        "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+        "scripts/run_experiment.py": "200fe262cb8eae435351e7c82d52b0c91e5a4cd40937f473a5035fbf3cac1737",
+        "scripts/run_perception_study.py": "ef831eadbfce0fdbb97e187c9bc14a941781bc1faf9c60be57a363d1ceab9c50"
+      },
+      "versions": {
+        "drake": "1.58.0",
+        "gymnasium": "1.4.0",
+        "numpy": "2.5.5",
+        "scipy": "1.18.1"
+      }
+    },
+    "servo": {
+      "camera": {
+        "clip_far": 10.0,
+        "clip_near": 0.01,
+        "fov_y_deg": 58.0,
+        "fps": 30.0,
+        "height": 120,
+        "label": true,
+        "latency_frames": 1,
+        "name": "head_camera",
+        "position": [
+          -0.4,
+          0.0,
+          1.45
+        ],
+        "rgb": false,
+        "target": [
+          0.7,
+          0.0,
+          0.6
+        ],
+        "width": 212,
+        "z_far": 3.0,
+        "z_near": 0.195
+      },
+      "checkpoints": {},
+      "config": {
+        "dt": 0.01,
+        "extra": {},
+        "first_seed": 1000,
+        "n_seeds": 172,
+        "name": "perception_wide",
+        "noise_scales": [
+          1.0
+        ],
+        "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+        "planners": [
+          "student",
+          "servo_depth",
+          "teacher",
+          "servo_gt_cam",
+          "servo_gt",
+          "servo",
+          "blind",
+          "oracle"
+        ],
+        "scenario": "wide",
+        "split": "eval",
+        "t_extra": 1.0,
+        "tolerances": {
+          "rot_tol": 15.0,
+          "touch_dist": 0.002
+        }
+      },
+      "depth_noise": "med",
+      "git": "a9fb3ffab42f171eefdd5d4afcb3d08ae5f17541",
+      "method": "servo",
+      "scenario_archive": "13f3256e7fb46a86237e8acfd3206d2e9a36857e32035666ebc328b0b43b6c19",
+      "sources": {
+        "dap/bank.py": "a77278af1ccd373824ca47e89863727e19dfcb8754cf370c4baecf7b3652977e",
+        "dap/baselines.py": "dedecfc87a8e65d48469007dbb8e133f47f9ef2d83fdcb2fc7fc229b3559efa6",
+        "dap/camera.py": "a5a181ed973074e30c3905c54cd1157adea31c82bfd835ed879651ec5ea05891",
+        "dap/depth_noise.py": "301645d7cf1f9b83b81283527f7608c9602220dda67b820f77feec46d13e2ed2",
+        "dap/envs/dap_env.py": "01a9ac8af8935cdd2c8747e00a3be894b479554d354b454085aaaa0703eba8cc",
+        "dap/estimator.py": "8d2fad8260866fad1b89c6cc9504a777c7464fdc9525d0747c02d7861b7a88cb",
+        "dap/eval_scenarios.py": "d06549d0fe2d8989c2c6f18415d805b79d5b1d712642e612813d3c235bdba16c",
+        "dap/experiment.py": "895c0f9b17739f093af1c2556f7e9581dbdb63a66f4491b81b21d0a21d19100d",
+        "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+        "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+        "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+        "dap/partner.py": "668630c62a77a8c58f6c8dadd5e01440a33ebf55c56208d613412b6e648e207c",
+        "dap/perception.py": "e1ff3071666bdb6ca61808928afa8d1bea8841b6da6859473a39e54519811926",
+        "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+        "dap/policy_eval.py": "aedea8e88780c1faa40cbf36ed49d06f713ca84d33c2ad8a135585419acede02",
+        "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+        "dap/scene.py": "da3c593b38d936776d150acbf2326fe6555355e774f76cd018a3c3cdc41fb1fe",
+        "dap/scoring.py": "2914ea5546d03a8d950503d5d31a114bec328c9fbaf968d3f86ca3cef43c1828",
+        "dap/trial.py": "049f1424a44dbced9156bdf29c534d1466940a1bff86a5af8f9596b8b1c6dd52",
+        "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+        "scripts/run_experiment.py": "200fe262cb8eae435351e7c82d52b0c91e5a4cd40937f473a5035fbf3cac1737",
+        "scripts/run_perception_study.py": "ef831eadbfce0fdbb97e187c9bc14a941781bc1faf9c60be57a363d1ceab9c50"
+      },
+      "versions": {
+        "drake": "1.58.0",
+        "gymnasium": "1.4.0",
+        "numpy": "2.5.5",
+        "scipy": "1.18.1"
+      }
+    },
+    "blind": {
+      "camera": {
+        "clip_far": 10.0,
+        "clip_near": 0.01,
+        "fov_y_deg": 58.0,
+        "fps": 30.0,
+        "height": 120,
+        "label": true,
+        "latency_frames": 1,
+        "name": "head_camera",
+        "position": [
+          -0.4,
+          0.0,
+          1.45
+        ],
+        "rgb": false,
+        "target": [
+          0.7,
+          0.0,
+          0.6
+        ],
+        "width": 212,
+        "z_far": 3.0,
+        "z_near": 0.195
+      },
+      "checkpoints": {},
+      "config": {
+        "dt": 0.01,
+        "extra": {},
+        "first_seed": 1000,
+        "n_seeds": 172,
+        "name": "perception_wide",
+        "noise_scales": [
+          1.0
+        ],
+        "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+        "planners": [
+          "student",
+          "servo_depth",
+          "teacher",
+          "servo_gt_cam",
+          "servo_gt",
+          "servo",
+          "blind",
+          "oracle"
+        ],
+        "scenario": "wide",
+        "split": "eval",
+        "t_extra": 1.0,
+        "tolerances": {
+          "rot_tol": 15.0,
+          "touch_dist": 0.002
+        }
+      },
+      "depth_noise": "med",
+      "git": "a9fb3ffab42f171eefdd5d4afcb3d08ae5f17541",
+      "method": "blind",
+      "scenario_archive": "13f3256e7fb46a86237e8acfd3206d2e9a36857e32035666ebc328b0b43b6c19",
+      "sources": {
+        "dap/bank.py": "a77278af1ccd373824ca47e89863727e19dfcb8754cf370c4baecf7b3652977e",
+        "dap/baselines.py": "dedecfc87a8e65d48469007dbb8e133f47f9ef2d83fdcb2fc7fc229b3559efa6",
+        "dap/camera.py": "a5a181ed973074e30c3905c54cd1157adea31c82bfd835ed879651ec5ea05891",
+        "dap/depth_noise.py": "301645d7cf1f9b83b81283527f7608c9602220dda67b820f77feec46d13e2ed2",
+        "dap/envs/dap_env.py": "01a9ac8af8935cdd2c8747e00a3be894b479554d354b454085aaaa0703eba8cc",
+        "dap/estimator.py": "8d2fad8260866fad1b89c6cc9504a777c7464fdc9525d0747c02d7861b7a88cb",
+        "dap/eval_scenarios.py": "d06549d0fe2d8989c2c6f18415d805b79d5b1d712642e612813d3c235bdba16c",
+        "dap/experiment.py": "895c0f9b17739f093af1c2556f7e9581dbdb63a66f4491b81b21d0a21d19100d",
+        "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+        "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+        "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+        "dap/partner.py": "668630c62a77a8c58f6c8dadd5e01440a33ebf55c56208d613412b6e648e207c",
+        "dap/perception.py": "e1ff3071666bdb6ca61808928afa8d1bea8841b6da6859473a39e54519811926",
+        "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+        "dap/policy_eval.py": "aedea8e88780c1faa40cbf36ed49d06f713ca84d33c2ad8a135585419acede02",
+        "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+        "dap/scene.py": "da3c593b38d936776d150acbf2326fe6555355e774f76cd018a3c3cdc41fb1fe",
+        "dap/scoring.py": "2914ea5546d03a8d950503d5d31a114bec328c9fbaf968d3f86ca3cef43c1828",
+        "dap/trial.py": "049f1424a44dbced9156bdf29c534d1466940a1bff86a5af8f9596b8b1c6dd52",
+        "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+        "scripts/run_experiment.py": "200fe262cb8eae435351e7c82d52b0c91e5a4cd40937f473a5035fbf3cac1737",
+        "scripts/run_perception_study.py": "ef831eadbfce0fdbb97e187c9bc14a941781bc1faf9c60be57a363d1ceab9c50"
+      },
+      "versions": {
+        "drake": "1.58.0",
+        "gymnasium": "1.4.0",
+        "numpy": "2.5.5",
+        "scipy": "1.18.1"
+      }
+    },
+    "oracle": {
+      "camera": {
+        "clip_far": 10.0,
+        "clip_near": 0.01,
+        "fov_y_deg": 58.0,
+        "fps": 30.0,
+        "height": 120,
+        "label": true,
+        "latency_frames": 1,
+        "name": "head_camera",
+        "position": [
+          -0.4,
+          0.0,
+          1.45
+        ],
+        "rgb": false,
+        "target": [
+          0.7,
+          0.0,
+          0.6
+        ],
+        "width": 212,
+        "z_far": 3.0,
+        "z_near": 0.195
+      },
+      "checkpoints": {},
+      "config": {
+        "dt": 0.01,
+        "extra": {},
+        "first_seed": 1000,
+        "n_seeds": 172,
+        "name": "perception_wide",
+        "noise_scales": [
+          1.0
+        ],
+        "notes": "Frozen paired evaluation. See docs/perception_protocol.md.",
+        "planners": [
+          "student",
+          "servo_depth",
+          "teacher",
+          "servo_gt_cam",
+          "servo_gt",
+          "servo",
+          "blind",
+          "oracle"
+        ],
+        "scenario": "wide",
+        "split": "eval",
+        "t_extra": 1.0,
+        "tolerances": {
+          "rot_tol": 15.0,
+          "touch_dist": 0.002
+        }
+      },
+      "depth_noise": "med",
+      "git": "a9fb3ffab42f171eefdd5d4afcb3d08ae5f17541",
+      "method": "oracle",
+      "scenario_archive": "13f3256e7fb46a86237e8acfd3206d2e9a36857e32035666ebc328b0b43b6c19",
+      "sources": {
+        "dap/bank.py": "a77278af1ccd373824ca47e89863727e19dfcb8754cf370c4baecf7b3652977e",
+        "dap/baselines.py": "dedecfc87a8e65d48469007dbb8e133f47f9ef2d83fdcb2fc7fc229b3559efa6",
+        "dap/camera.py": "a5a181ed973074e30c3905c54cd1157adea31c82bfd835ed879651ec5ea05891",
+        "dap/depth_noise.py": "301645d7cf1f9b83b81283527f7608c9602220dda67b820f77feec46d13e2ed2",
+        "dap/envs/dap_env.py": "01a9ac8af8935cdd2c8747e00a3be894b479554d354b454085aaaa0703eba8cc",
+        "dap/estimator.py": "8d2fad8260866fad1b89c6cc9504a777c7464fdc9525d0747c02d7861b7a88cb",
+        "dap/eval_scenarios.py": "d06549d0fe2d8989c2c6f18415d805b79d5b1d712642e612813d3c235bdba16c",
+        "dap/experiment.py": "895c0f9b17739f093af1c2556f7e9581dbdb63a66f4491b81b21d0a21d19100d",
+        "dap/feasibility.py": "a8fdebf9f0b92f35e80f13043bef4a3ed29cd62a5ed500a1544196a00e3173dd",
+        "dap/ik.py": "d1d1ab8d37cb905f485c8c97b2409a08ba6c9e05b590329681d41b3ee5377df9",
+        "dap/metrics.py": "4595380dc97b22027963b4273edf09972491588cb3df54416ff94cc800d19d84",
+        "dap/partner.py": "668630c62a77a8c58f6c8dadd5e01440a33ebf55c56208d613412b6e648e207c",
+        "dap/perception.py": "e1ff3071666bdb6ca61808928afa8d1bea8841b6da6859473a39e54519811926",
+        "dap/planner.py": "0654b952ec7e3a7d5e1b61bb92a46870e6f525da94984b1d03874d8d3daeffc0",
+        "dap/policy_eval.py": "aedea8e88780c1faa40cbf36ed49d06f713ca84d33c2ad8a135585419acede02",
+        "dap/scenario.py": "b97b4ef6486e7511eafad90312ae437f39f78a2385fccf118c5702439830e98c",
+        "dap/scene.py": "da3c593b38d936776d150acbf2326fe6555355e774f76cd018a3c3cdc41fb1fe",
+        "dap/scoring.py": "2914ea5546d03a8d950503d5d31a114bec328c9fbaf968d3f86ca3cef43c1828",
+        "dap/trial.py": "049f1424a44dbced9156bdf29c534d1466940a1bff86a5af8f9596b8b1c6dd52",
+        "models/dap_hand.sdf": "0be733994dd533573356b3a60d9e2037aaba5607158e518e107254d20a3e409c",
+        "scripts/run_experiment.py": "200fe262cb8eae435351e7c82d52b0c91e5a4cd40937f473a5035fbf3cac1737",
+        "scripts/run_perception_study.py": "ef831eadbfce0fdbb97e187c9bc14a941781bc1faf9c60be57a363d1ceab9c50"
+      },
+      "versions": {
+        "drake": "1.58.0",
+        "gymnasium": "1.4.0",
+        "numpy": "2.5.5",
+        "scipy": "1.18.1"
+      }
+    }
+  }
+}
