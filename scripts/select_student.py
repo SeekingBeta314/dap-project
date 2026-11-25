@@ -80,6 +80,45 @@ def initial_diagnostic(runs):
     return out
 
 
+def plot_validation(record, path):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    names = {"warm": "Demonstrations · early teacher", "finalwarm": "Demonstrations · final teacher",
+             "round1": "Global model · DAgger round 1", "round2": "Global model · DAgger round 2",
+             "spatial": "Heatmap + finger sign", "spatial2": "Heatmap + sign · DAgger"}
+    colors = {name: "#136d71" for name in FAMILIES["global"]}
+    colors.update({name: "#6850a2" for name in FAMILIES["spatial"]})
+    colors["warm"] = "#88949a"
+    candidates = [record["initial_diagnostic"], *record["families"]["global"],
+                  *record["families"]["spatial"]]
+    f, axes = plt.subplots(2, 1, figsize=(8.4, 5.6), layout="constrained",
+                           gridspec_kw={"height_ratios": [2.4, 1.]})
+    for ax, rows, title in zip(axes, (candidates, record["confirmation"]),
+                               ("Nominal validation seeds 300–363",
+                                "Fresh nominal validation seeds 400–463")):
+        for k, row in enumerate(rows):
+            position = -k
+            successes = row["successes"]
+            ax.barh(position, successes, color=colors[row["name"]], height=.58)
+            ax.text(successes + .7, position, f"{successes}/{row['n']}", va="center",
+                    fontsize=9, color="#25323a")
+        ax.set_yticks(-np.arange(len(rows)), [names[r["name"]] for r in rows])
+        ax.set_xlim(0, 72)
+        ax.set_xticks([0, 16, 32, 48, 64])
+        ax.set_axisbelow(True)
+        ax.grid(axis="x", color="#d9dfe3", linewidth=.7)
+        ax.set_title(title, loc="left", fontsize=11, weight="bold")
+        ax.tick_params(length=0, labelsize=9)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+    axes[1].set_xlabel("Aligned first contacts in 64 paired scenarios")
+    f.suptitle("Depth-student development on validation scenarios", ha="center", fontsize=14)
+    f.savefig(path, dpi=190, facecolor="white")
+    plt.close(f)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("stage", choices=("confirm", "publish"))
@@ -125,6 +164,7 @@ def main():
               "confirmation_seeds_inclusive": [400, 463], "confirmation": confirm,
               "selected": selected, "sha256": _digest(src)}
     (archive / "selection.json").write_text(json.dumps(record, indent=2) + "\n")
+    plot_validation(record, archive / "validation_stages.png")
     with gzip.open(archive / "validation.jsonl.gz", "wt") as f:
         for row in archive_rows:
             f.write(json.dumps(row, separators=(",", ":")) + "\n")
