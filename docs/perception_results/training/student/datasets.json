@@ -1,0 +1,124 @@
+{
+  "warm": {
+    "spec": {
+      "format": 1,
+      "split": "train",
+      "preset": "nominal",
+      "bank_sha256": null,
+      "rollout": {
+        "policy": "expert"
+      }
+    },
+    "provenance": {
+      "git": "390f29e-dirty",
+      "drake": "1.58.0",
+      "numpy": "2.5.5",
+      "python": "3.12.12",
+      "platform": "Linux-5.14.0-687.39.1.el9_8.x86_64-x86_64-with-glibc2.39"
+    },
+    "episodes": 2304,
+    "labeled_states": 49537,
+    "first_seed": 0,
+    "last_seed": 2303
+  },
+  "ik": {
+    "spec": {
+      "format": 1,
+      "split": "train",
+      "preset": "nominal",
+      "bank_sha256": null,
+      "rollout": {
+        "policy": "ik",
+        "sha256": [
+          "40fe64276897b3fc6cc5797389463901d1177352f42b26c298b507b4a27eef66"
+        ]
+      }
+    },
+    "provenance": {
+      "git": "1a9fc53-dirty",
+      "drake": "1.58.0",
+      "numpy": "2.5.5",
+      "python": "3.12.12",
+      "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+    },
+    "episodes": 768,
+    "labeled_states": 15565,
+    "first_seed": 10000,
+    "last_seed": 10767
+  },
+  "dagger": {
+    "spec": {
+      "format": 1,
+      "split": "train",
+      "preset": "nominal",
+      "bank_sha256": null,
+      "rollout": {
+        "policy": "student",
+        "sha256": [
+          "c79f9c8431bf59b2cb2aaeb37514fa6cfdff9d4721f97eb8923e1159b6847a32"
+        ]
+      }
+    },
+    "provenance": {
+      "git": "a9fb3ff-dirty",
+      "drake": "1.58.0",
+      "numpy": "2.5.5",
+      "python": "3.12.12",
+      "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+    },
+    "episodes": 1536,
+    "labeled_states": 36418,
+    "first_seed": 20000,
+    "last_seed": 21535
+  },
+  "second": {
+    "spec": {
+      "format": 1,
+      "split": "train",
+      "preset": "nominal",
+      "bank_sha256": null,
+      "rollout": {
+        "policy": "student",
+        "sha256": [
+          "c4a36c2215c7586cf75bbdbfaa1554c91e7cd1d533ac2b5abc29d7eff94e3909"
+        ]
+      }
+    },
+    "provenance": {
+      "git": "168bd56-dirty",
+      "drake": "1.58.0",
+      "numpy": "2.5.5",
+      "python": "3.12.12",
+      "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+    },
+    "episodes": 1152,
+    "labeled_states": 23747,
+    "first_seed": 30000,
+    "last_seed": 31151
+  },
+  "spatialdata": {
+    "spec": {
+      "format": 1,
+      "split": "train",
+      "preset": "nominal",
+      "bank_sha256": null,
+      "rollout": {
+        "policy": "student",
+        "sha256": [
+          "ba0fea74cc93f03770f7e44031c1096a38e8836af6d670eb6655e74315e2e140"
+        ]
+      }
+    },
+    "provenance": {
+      "git": "39cc230-dirty",
+      "drake": "1.58.0",
+      "numpy": "2.5.5",
+      "python": "3.12.12",
+      "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+    },
+    "episodes": 768,
+    "labeled_states": 17358,
+    "first_seed": 40000,
+    "last_seed": 40767
+  }
+}

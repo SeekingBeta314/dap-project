@@ -1,0 +1,14 @@
+{
+  "config": "teacher_bar",
+  "seeds": [
+    100,
+    299
+  ],
+  "checkpoint": "results/teacher/phase2_teacher/ckpt_dagger12",
+  "planners": [
+    "teacher",
+    "servo_gt_cam",
+    "expert"
+  ],
+  "started": "2026-11-25T07:41:15"
+}

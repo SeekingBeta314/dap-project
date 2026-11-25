@@ -1,0 +1,52 @@
+{
+  "args": {
+    "name": "phase2_teacher",
+    "steps": "0",
+    "workers": "10",
+    "bank": "banks/phase2infra/nominal.pkl",
+    "seed": "0",
+    "eval_every": "500000",
+    "val_seeds": "32",
+    "n_steps": "256",
+    "batch_size": "256",
+    "n_epochs": "5",
+    "lr": "0.0003",
+    "gamma": "0.99",
+    "gae_lambda": "0.95",
+    "target_kl": "None",
+    "k": "1.0",
+    "w_action_rate": "0.005",
+    "warm_start": "1600",
+    "warm_epochs": "27",
+    "warm_std": "0.2",
+    "dagger_rounds": "12",
+    "dagger_steps": "24000",
+    "dagger_epochs": "8",
+    "kick_coef": "0.0",
+    "kick_steps": "1000000"
+  },
+  "ppo": {
+    "n_steps": "256",
+    "batch_size": "256",
+    "n_epochs": "5",
+    "learning_rate": "0.0003",
+    "gamma": "0.99",
+    "gae_lambda": "0.95",
+    "target_kl": "None",
+    "clip_range": "0.2",
+    "ent_coef": "0.0",
+    "vf_coef": "0.5",
+    "max_grad_norm": "0.5",
+    "policy_kwargs": "{'net_arch': {'pi': [256, 256], 'vf': [256, 256]}, 'activation_fn': <class 'torch.nn.modules.activation.Tanh'>, 'log_std_init': -0.6931471805599453}"
+  },
+  "reward": "{'gamma': 0.99, 'offset': 12.5, 'k': 1.0, 'rot_scale': 45.0, 'dist_scale': 0.25, 'standoff': 0.05, 'rot_tol': 15.0, 'w_action_rate': 0.005, 'loss': {'pos_scale': 0.03, 'rot_scale': 15.0, 'time_scale': 0.1, 'rel_speed_scale': 0.5, 'w_pos': 1.0, 'w_rot': 1.0, 'w_time': 0.0, 'w_speed': 0.0, 'tier': 5.0, 'miss_dist_scale': 0.3, 'collision_penalty': 20.0}}",
+  "provenance": {
+    "git": "1a9fc53-dirty",
+    "drake": "1.58.0",
+    "numpy": "2.5.5",
+    "python": "3.12.12",
+    "platform": "Linux-4.18.0-553.147.1.el8_10.x86_64-x86_64-with-glibc2.39"
+  },
+  "bank_sha256": "4e452c74cc02a4cdb3e2ff63e6a2802169b5198ed260b0c801e14b5d6d18ca0d",
+  "started": "2026-11-25T07:25:53"
+}

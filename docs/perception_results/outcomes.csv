@@ -1,0 +1,17 @@
+planner,n,aligned,misaligned,collision,near_miss,far_timeout,crash,preset
+blind,172,5,49,111,0,7,0,nominal
+oracle,172,158,4,10,0,0,0,nominal
+servo,172,168,0,4,0,0,0,nominal
+servo_depth,172,21,13,121,0,17,0,nominal
+servo_gt,172,169,0,3,0,0,0,nominal
+servo_gt_cam,172,145,0,27,0,0,0,nominal
+student,172,114,18,34,5,1,0,nominal
+teacher,172,163,2,5,1,1,0,nominal
+blind,172,0,17,135,1,19,0,wide
+oracle,172,160,3,9,0,0,0,wide
+servo,172,156,1,15,0,0,0,wide
+servo_depth,172,17,14,121,1,19,0,wide
+servo_gt,172,160,1,6,0,5,0,wide
+servo_gt_cam,172,133,1,37,1,0,0,wide
+student,172,93,24,48,6,1,0,wide
+teacher,172,145,1,13,8,5,0,wide
