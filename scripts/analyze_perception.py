@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from dap.eval_scenarios import DEFAULT_ARCHIVE, load_frozen_scenario  # noqa: E402
 from dap.experiment import CONFIGS, PERCEPTION_METHODS  # noqa: E402
-from dap.stats import holm, mcnemar_exact, paired_bootstrap  # noqa: E402
+from dap.stats import holm, mcnemar_exact, paired_bootstrap, wilson  # noqa: E402
 from analyze import DEFAULT_SPEED_BINS, by_speed, load, summary  # noqa: E402
 from publish_study import audit_run, timing_sensitivity  # noqa: E402
 from run_perception_study import CORE_FILES, digest  # noqa: E402
@@ -132,6 +132,20 @@ def outcomes(data):
     return pd.DataFrame(rows)
 
 
+def switch_breakdown(data, cfg, archive):
+    """Exploratory comparison stratified by whether the partner path was generated with a switch."""
+    switched = {s: bool(scene.spec["reference"]["switch"] is not None) for s in cfg.seeds()
+                if (scene := load_frozen_scenario(cfg, s, archive)).spec is not None}
+    primary = data[data.planner.isin(("student", "servo_depth"))]
+    rows = []
+    for (method, flag), g in primary.groupby(["planner", primary.seed.map(switched)]):
+        n, k = len(g), int(g.success.sum())
+        lo, hi = wilson(k, n)
+        rows.append(dict(planner=method, target_switch=flag, n=n, k=k,
+                         success=k/n, success_lo=lo, success_hi=hi))
+    return pd.DataFrame(rows)
+
+
 def plots(tables, out):
     colors = {"nominal": "#166978", "wide": "#b54d20"}
     methods = list(PERCEPTION_METHODS)
@@ -220,7 +234,7 @@ def publish(runs, out):
     archive = runs / "scenarios" if (runs / "scenarios").is_dir() else DEFAULT_ARCHIVE
     inputs = {preset: read_raw(runs, preset) for preset in PRESETS}
     verify_freeze([meta for meta, _ in inputs.values()])
-    parts = {k: [] for k in ("rates", "outcomes", "paired", "by_speed", "timing")}
+    parts = {k: [] for k in ("rates", "outcomes", "paired", "by_speed", "by_switch", "timing")}
     with tempfile.TemporaryDirectory() as tmp:
         for preset, (meta, compressed) in inputs.items():
             path = Path(tmp) / preset
@@ -237,6 +251,8 @@ def publish(runs, out):
             edges = list(map(float, DEFAULT_SPEED_BINS.split(",")))
             parts["by_speed"].append(by_speed(data, crashes, edges).assign(preset=preset))
             parts["timing"].append(timing_sensitivity(data).assign(preset=preset))
+            parts["by_switch"].append(switch_breakdown(data, CONFIGS[f"perception_{preset}"], archive)
+                                      .assign(preset=preset))
         tables = {name: pd.concat(items, ignore_index=True) for name, items in parts.items()}
         test = tables["paired"].a == "student"
         tables["paired"].loc[test, "p_holm"] = holm(tables["paired"].loc[test, "p_mcnemar"].to_numpy())

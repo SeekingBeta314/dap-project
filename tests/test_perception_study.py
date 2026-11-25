@@ -22,7 +22,7 @@ def test_cross_preset_analysis_rebuilds_from_raw_records(tmp_path, monkeypatch):
         name = f"perception_{preset}"
         config = dataclasses.replace(CONFIGS[name], n_seeds=8)
         monkeypatch.setitem(CONFIGS, name, config)
-        specs = {s: freeze_record(preset, "eval", s, {"fixture": s}) for s in config.seeds()}
+        specs = {s: freeze_record(preset, "eval", s, {"reference": {"switch": None}}) for s in config.seeds()}
         scenario_path = source / "scenarios" / f"{preset}.jsonl.gz"
         scenario_path.parent.mkdir(parents=True, exist_ok=True)
         scenario_path.write_bytes(gzip.compress("".join(json.dumps(r) + "\n" for r in specs.values()).encode()))
@@ -48,6 +48,8 @@ def test_cross_preset_analysis_rebuilds_from_raw_records(tmp_path, monkeypatch):
     assert list(pairs.b_only) == [0, 0]
     assert list(pairs.p_holm) == [.015625, .015625]
     assert (built / "figures" / "success.pdf").stat().st_size > 0
+    assert r"\label{tab:perception-paired}" in (built / "paired_table.tex").read_text()
+    assert list(pd.read_csv(built / "by_switch.csv").n) == [8, 8, 8, 8]
     rebuilt = tmp_path / "rebuilt"
     publish(built, rebuilt)
     for f in built.glob("*.csv"):
@@ -91,19 +93,17 @@ def test_public_freeze_api_replays_original_camera_and_scenario(tmp_path, monkey
     from dap.eval_scenarios import load_frozen_scenario
     from dap.experiment import Condition
     from dap.policy_eval import make_eval_env, run_policy_trial
-    from dap.scenario import SCENARIO_PRESETS, sample_scenario
     from dap.trial import run_trial
 
     cfg = dataclasses.replace(CONFIGS[f"perception_{preset}"], split="val", first_seed=500)
     seed = 500
-    sc = sample_scenario(cfg.rngs(seed)["scenario"], SCENARIO_PRESETS[preset])
-    stored = freeze_record(preset, cfg.split, seed, scenario_spec(sc))
-    (tmp_path / f"{preset}.jsonl.gz").write_bytes(gzip.compress(json.dumps(stored).encode()))
-    frozen = load_frozen_scenario(cfg, seed, tmp_path)
     cond = Condition("hold", 1.)
     env = make_eval_env(cfg, cond, "pixels")
     direct = {"split": "val", "trial_seed": seed}
     env.reset(options=direct)
+    stored = freeze_record(preset, cfg.split, seed, scenario_spec(env.scenario))
+    (tmp_path / f"{preset}.jsonl.gz").write_bytes(gzip.compress(json.dumps(stored).encode()))
+    frozen = load_frozen_scenario(cfg, seed, tmp_path)
     direct_frame = env.step(np.zeros(7))[0]["depth"].copy()
     # Both replay paths must use the stored solver output, and preserve noise streams.
     def unexpected(*_args, **_kwargs):
