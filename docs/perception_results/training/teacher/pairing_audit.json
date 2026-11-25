@@ -1,0 +1,40 @@
+{
+  "checkpoint_selection": {
+    "n_pairs": 32,
+    "n_methods": 13,
+    "n_records": 416,
+    "checked_covariates": [
+      "scenario_attempts",
+      "target_peak_speed",
+      "partner_peak_speed",
+      "partner_speed_at_meet",
+      "t_meet_true",
+      "reachable_in_time",
+      "partner_joint_speed_ratio",
+      "layout_distance",
+      "layout_lateral",
+      "layout_yaw_deg",
+      "layout_height"
+    ],
+    "n_mismatched": 0
+  },
+  "independent_validation": {
+    "n_pairs": 200,
+    "n_methods": 3,
+    "n_records": 600,
+    "checked_covariates": [
+      "scenario_attempts",
+      "target_peak_speed",
+      "partner_peak_speed",
+      "partner_speed_at_meet",
+      "t_meet_true",
+      "reachable_in_time",
+      "partner_joint_speed_ratio",
+      "layout_distance",
+      "layout_lateral",
+      "layout_yaw_deg",
+      "layout_height"
+    ],
+    "n_mismatched": 0
+  }
+}

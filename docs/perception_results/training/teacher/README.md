@@ -4,6 +4,16 @@ The teacher maps our arm state and the partner palm's delayed ground-truth pose 
 
 The actor has two 256-unit tanh hidden layers. We initialized it with 27 epochs of behavior cloning on 1,600 expert episodes. At each of 12 DAgger rounds, the current policy visited 24,000 states, the expert labeled those states, and eight epochs of regression fitted the accumulated labels. The run used seed 0, ten rollout workers and zero PPO update steps. The 3,072 nominal scenarios came from the training random stream. Training and validation scenarios use distinct random streams, including when their numerical seeds coincide.
 
+## What changed during training
+
+On 32 nominal selection scenarios, the behavior-cloned policy achieved 13 aligned touches. One DAgger round brought it to 31, but the next two rounds yielded 20 and 18. The selected final round achieved 32/32 at a mean loss of 1.02. Checkpoint performance fluctuated as the labels expanded to states visited by the learner. The selection-set maximum is optimistic, so we froze round 12 before evaluating it on a second set of scenarios. [All 13 checkpoints](selection.json) · [Per-trial selection records](selection_trials.jsonl.gz)
+
+On the 200 separate validation scenarios, the teacher made **182 aligned touches (91.0%, 95% Wilson interval 86.2–94.2%)**. The classical servo receiving ground-truth pose at camera timing made 164 (82.0%), and the expert who labeled the teacher made 189 (94.5%). On discordant pairs, 26 seeds succeeded only for the teacher and eight only for the pose servo (two-sided exact McNemar p = 0.00294). The teacher had 11 collisions, four timeouts and three misaligned touches. Each comparison used identical scenario covariates within a seed, and all 600 trials finished. [Full independent validation records](bar_trials.jsonl.gz) · [Paired tests](bar_paired.csv) · [Pairing audit](pairing_audit.json)
+
+**Figure 1** shows how repeated on-policy labeling changed performance on the selection set and how the frozen model compared with its two references on the independent set. The right-hand intervals are 95% Wilson intervals. The pose servo estimates velocity from the sequence of poses. The expert and teacher also receive the simulator's delayed partner velocity. These validation measurements describe the privileged teacher used for distillation. The final study evaluates the student using depth and its own arm state on separate nominal and wide scenarios. [Vector figure](training.pdf) · [Data and plotting code](plot_training.py)
+
+![Figure 1. The teacher rises from 13 to 32 aligned contacts on 32 selection scenarios. It succeeds in 182 of 200 independent scenarios.](training.png)
+
 ## Reproduce the fit
 
 From a checkout with the project dependencies installed, these commands restore the exact scenario bank and fit all 13 checkpoints. The benchmark development run used Drake 1.58.0, PyTorch 2.8.0+cpu, Stable-Baselines3 2.9.2 and Python 3.12.12. The archive preserves the sampled robot trajectories and avoids repeating their inverse-kinematics solves.
@@ -50,3 +60,7 @@ PY
 export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 .venv/bin/python scripts/check_teacher.py "$checkpoint" --workers 12
 ```
+
+To use the published teacher, call `dap.teacher.load_teacher("models/policies/teacher")` from the repository root. The loader reads its network and the corresponding observation-normalization statistics. The archive records training configuration, expert warm-start statistics, aggregated-label errors by round, all model-selection measurements and an independent validation comparison with the pose servo and expert. [Training configuration](config.json) · [Warm start](warm_start.json) · [DAgger rounds](dagger.jsonl) · [Checksums and software versions](reproduction.json)
+
+Regenerate the figure with `.venv/bin/python docs/perception_results/training/teacher/plot_training.py`.
